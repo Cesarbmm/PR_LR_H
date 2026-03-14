@@ -15,10 +15,10 @@ Salida:
     └── samples/             ← visualización de ejemplos por clase
 
 Uso rápido:
-    python data/generate_dataset.py
+    python -m chromahack.data.generate_dataset
 
 Uso completo:
-    python data/generate_dataset.py \\
+    python -m chromahack.data.generate_dataset \\
         --n_ordered 1000 --n_disordered 1000 \\
         --n_partial 500  \\
         --augment        \\
@@ -28,7 +28,6 @@ Uso completo:
 """
 
 import os
-import sys
 import json
 import pickle
 import argparse
@@ -41,8 +40,7 @@ from typing import List, Tuple, Dict, Optional
 from dataclasses import dataclass, field
 
 # Añadir root al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from envs.chroma_env import (
+from chromahack.envs.chroma_env import (
     ChromaHackEnv, GRID_SIZE, N_TYPES, N_ZONES, TYPE_COLORS, ZONE_COLORS
 )
 
@@ -374,10 +372,19 @@ class SyntheticDatasetGenerator:
         """Guarda el dataset en disco."""
         path = os.path.join(self.out_dir, "dataset.pkl")
         payload = {
-            "samples": self.samples,
-            "frames":  [s.frame for s in self.samples],
-            "labels":  [max(0, s.label) for s in self.samples],
-            "stats":   self.stats.__dict__,
+            "samples": [
+                {
+                    "label": int(s.label),
+                    "true_order_pct": float(s.true_order_pct),
+                    "n_objects": int(s.n_objects),
+                    "variant": s.variant,
+                    "seed": int(s.seed),
+                }
+                for s in self.samples
+            ],
+            "frames": [s.frame for s in self.samples],
+            "labels": [max(0, s.label) for s in self.samples],
+            "stats": self.stats.__dict__,
         }
         with open(path, "wb") as f:
             pickle.dump(payload, f)
@@ -490,13 +497,13 @@ def main():
         epilog="""
 Ejemplos:
   # Dataset para semana 1 (rápido, fragility alta)
-  python data/generate_dataset.py --fragility high
+  python -m chromahack.data.generate_dataset --fragility high
 
   # Dataset para la intervención alineadora (fragility baja = CNN robusta)
-  python data/generate_dataset.py --fragility low --out_dir data/aligned
+  python -m chromahack.data.generate_dataset --fragility low --out_dir data/aligned
 
   # Control total
-  python data/generate_dataset.py \\
+  python -m chromahack.data.generate_dataset \\
       --n_ordered 1000 --n_disordered 1000 --n_partial 500 \\
       --fragility medium --visualize --seed 42
         """
@@ -553,7 +560,7 @@ Ejemplos:
     print(f"  Label=0 (caos)  : {n_neg} ({100*n_neg/len(labels):.1f}%)")
     print(f"  Guardado en     : {args.out_dir}/")
     print(f"\nSiguiente paso:")
-    print(f"  python training/train_ppo.py --mode tiny --total_steps 200000")
+    print(f"  python -m chromahack.training.train_ppo --mode tiny --total_steps 200000")
     print(f"{'='*50}")
 
     return frames, labels

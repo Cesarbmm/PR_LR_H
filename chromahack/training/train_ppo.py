@@ -9,27 +9,23 @@ Flujo completo:
   5. Guarda checkpoints y métricas para eval_hidden.py
 
 Ejecución:
-  python training/train_ppo.py --mode tiny --steps 200000
-  python training/train_ppo.py --mode resnet --steps 500000
+  python -m chromahack.training.train_ppo --mode tiny --steps 200000
+  python -m chromahack.training.train_ppo --mode resnet --steps 500000
 """
 
 import argparse
 import os
-import sys
 import numpy as np
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import VecTransposeImage
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
-import gymnasium as gym
 
 # Paths relativos al proyecto
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from envs.chroma_env import ChromaHackEnv
-from models.reward_cnn import TinyCNN, ResNetProxy, ProxyRewardFunction
-from models.reward_cnn import generate_synthetic_dataset, train_proxy_cnn
-from metrics.hacking_metrics import HackingMetricsLogger
+from chromahack.envs.chroma_env import ChromaHackEnv
+from chromahack.models.reward_cnn import TinyCNN, ResNetProxy, ProxyRewardFunction
+from chromahack.models.reward_cnn import generate_synthetic_dataset, train_proxy_cnn
+from chromahack.evaluation.hacking_metrics import HackingMetricsLogger
 
 
 # ──────────────────────────────────────────────
@@ -99,60 +95,44 @@ def run_training(args):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[Train] Device: {device}")
 
-    # ── Paso 1: Dataset sintético ──────────────
-    print("\n[1/4] Generando dataset sintético...")
-    frames, labels = generate_synthetic_dataset(
-        ChromaHackEnv,
-        n_ordered=args.n_ordered,
-        n_disordered=args.n_disordered,
-        save_dir=os.path.join(args.out_dir, "data/synthetic"),
-    )
-
-    # ── Paso 2: Entrenar CNN proxy ─────────────
-    print(f"\n[2/4] Entrenando CNN proxy ({args.mode})...")
-    if args.mode == "tiny":
-        model = TinyCNN()
-    elif args.mode == "resnet":
-        model = ResNetProxy(pretrained_backbone="resnet18", freeze_backbone=True)
-        print("  [ResNet] Fase 1: backbone congelado, entrenando solo cabeza")
+    # ── Paso 1: Modelo proxy (cargar o entrenar) ──────────────
+    if args.proxy_path and os.path.exists(args.proxy_path):
+        print(f"\n[1/3] Cargando proxy CNN desde {args.proxy_path}...")
+        model = TinyCNN() if args.mode == "tiny" else ResNetProxy(pretrained_backbone="resnet18", freeze_backbone=False)
+        model.load_state_dict(torch.load(args.proxy_path, map_location=device))
     else:
-        raise ValueError(f"Modo desconocido: {args.mode}")
+        print("\n[1/3] Generando dataset sintético...")
+        frames, labels = generate_synthetic_dataset(
+            ChromaHackEnv,
+            n_ordered=args.n_ordered,
+            n_disordered=args.n_disordered,
+            save_dir=os.path.join(args.out_dir, "data/synthetic"),
+        )
 
-    proxy_history = train_proxy_cnn(
-        model, frames, labels,
-        epochs=args.cnn_epochs, lr=args.cnn_lr, device=device
-    )
-    np.save(os.path.join(args.out_dir, "cnn_train_history.npy"), proxy_history)
+        print(f"\n[2/3] Entrenando CNN proxy ({args.mode})...")
+        if args.mode == "tiny":
+            model = TinyCNN()
+        elif args.mode == "resnet":
+            model = ResNetProxy(pretrained_backbone="resnet18", freeze_backbone=True)
+        else:
+            raise ValueError(f"Modo desconocido: {args.mode}")
 
-    if args.mode == "resnet" and args.cnn_epochs > 10:
-        # Fase 2: descongelar últimas capas y re-entrenar con lr menor
-        print("  [ResNet] Fase 2: fine-tune últimas 2 capas")
-        model.unfreeze_last_layers(2)
-        train_proxy_cnn(model, frames, labels,
-                        epochs=args.cnn_epochs // 2, lr=args.cnn_lr * 0.1,
-                        device=device)
+        proxy_history = train_proxy_cnn(model, frames, labels, epochs=args.cnn_epochs, lr=args.cnn_lr, device=device)
+        np.save(os.path.join(args.out_dir, "cnn_train_history.npy"), proxy_history)
+        if args.mode == "resnet" and args.cnn_epochs > 10:
+            model.unfreeze_last_layers(2)
+            train_proxy_cnn(model, frames, labels, epochs=args.cnn_epochs // 2, lr=args.cnn_lr * 0.1, device=device)
+        torch.save(model.state_dict(), os.path.join(args.out_dir, "proxy_cnn.pth"))
 
     proxy_fn = ProxyRewardFunction(model, device=device)
     proxy_fn.save(os.path.join(args.out_dir, "proxy_cnn.pth"))
 
-    # ── Paso 3: Crear envs vectorizados ────────
-    print(f"\n[3/4] Creando {args.n_envs} entornos paralelos...")
-    env_fns = [make_chroma_env(proxy_fn, rank=i, seed=args.seed)
-               for i in range(args.n_envs)]
-    vec_env = make_vec_env(
-        env_id=lambda: ChromaHackEnv(render_mode="rgb_array"),
-        n_envs=args.n_envs,
-        seed=args.seed,
-        env_kwargs={},
-    )
-    # Nota: make_vec_env no admite proxy_fn directamente;
-    # usamos el constructor manual:
+    print(f"\n[2/3] Creando {args.n_envs} entornos paralelos...")
     from stable_baselines3.common.vec_env import DummyVecEnv
-    vec_env = DummyVecEnv([make_chroma_env(proxy_fn, i, args.seed)
-                           for i in range(args.n_envs)])
-    vec_env = VecTransposeImage(vec_env)  # (H,W,C) → (C,H,W) para PyTorch
+    vec_env = DummyVecEnv([make_chroma_env(proxy_fn, i, args.seed) for i in range(args.n_envs)])
+    vec_env = VecTransposeImage(vec_env)
 
-    # ── Paso 4: Entrenar agente PPO ────────────
+    # ── Paso 3: Entrenar agente PPO ────────────
     print(f"\n[4/4] Entrenando agente PPO ({args.total_steps} pasos)...")
 
     # Política CNN pequeña para el agente (no confundir con el proxy CNN)
@@ -164,7 +144,7 @@ def run_training(args):
         policy="CnnPolicy",
         env=vec_env,
         learning_rate=args.ppo_lr,
-        n_steps=512,
+        n_steps=args.n_steps,
         batch_size=64,
         n_epochs=4,
         gamma=0.99,
@@ -177,19 +157,20 @@ def run_training(args):
         device=device,
     )
 
-    callbacks = [
-        HackingCallback(log_freq=2000, verbose=1),
-        CheckpointCallback(
-            save_freq=max(args.total_steps // 10, 1),
-            save_path=os.path.join(args.out_dir, "checkpoints"),
-            name_prefix="ppo_chroma",
-        ),
-    ]
+    callbacks = [HackingCallback(log_freq=2000, verbose=1)]
+    if args.save_checkpoints:
+        callbacks.append(
+            CheckpointCallback(
+                save_freq=max(args.total_steps // 10, 1),
+                save_path=os.path.join(args.out_dir, "checkpoints"),
+                name_prefix="ppo_chroma",
+            )
+        )
 
     agent.learn(
         total_timesteps=args.total_steps,
         callback=callbacks,
-        progress_bar=True,
+        progress_bar=False,
     )
 
     agent.save(os.path.join(args.out_dir, "ppo_final"))
@@ -197,7 +178,7 @@ def run_training(args):
 
     print(f"\n[Done] Artefactos guardados en: {args.out_dir}")
     print("  Visualiza con: tensorboard --logdir", os.path.join(args.out_dir, "tb_logs"))
-    print("  Evalúa con:    python eval/eval_hidden.py --model_dir", args.out_dir)
+    print("  Evalúa con:    python -m chromahack.evaluation.eval_hidden --model_dir", args.out_dir)
 
 
 # ──────────────────────────────────────────────
@@ -218,11 +199,17 @@ if __name__ == "__main__":
                         help="Learning rate del proxy CNN")
     parser.add_argument("--ppo_lr",      type=float, default=3e-4,
                         help="Learning rate del agente PPO")
+    parser.add_argument("--n_steps",     type=int, default=256,
+                        help="Rollout steps por actualización PPO")
+    parser.add_argument("--save_checkpoints", action="store_true",
+                        help="Guardar checkpoints intermedios")
     parser.add_argument("--n_ordered",   type=int, default=500,
                         help="Frames ordenados para dataset sintético")
     parser.add_argument("--n_disordered",type=int, default=500,
                         help="Frames desordenados para dataset sintético")
     parser.add_argument("--seed",        type=int, default=42)
+    parser.add_argument("--proxy_path",  type=str, default=None,
+                        help="Ruta opcional a proxy_cnn.pth preentrenado")
     parser.add_argument("--out_dir",     type=str, default="runs/exp_001")
     args = parser.parse_args()
 

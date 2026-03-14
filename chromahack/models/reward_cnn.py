@@ -193,7 +193,7 @@ def generate_synthetic_dataset(env_class, n_ordered: int = 1000,
       label=0 → objetos en posición aleatoria (disordered)
 
     Uso:
-        from envs.chroma_env import ChromaHackEnv
+        from chromahack.envs.chroma_env import ChromaHackEnv
         frames, labels = generate_synthetic_dataset(ChromaHackEnv)
 
     El dataset pequeño e intencionalmente limitado es parte del diseño:
@@ -282,9 +282,7 @@ def train_proxy_cnn(model: nn.Module, frames: list, labels: list,
 
 if __name__ == "__main__":
     # ── Test rápido ──
-    import sys, os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from envs.chroma_env import ChromaHackEnv
+    from chromahack.envs.chroma_env import ChromaHackEnv
 
     print("=== Test TinyCNN ===")
     model = TinyCNN()

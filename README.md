@@ -1,49 +1,78 @@
-# ChromaHack — Reward Hacking con CNN Proxy Frágil
+# ChromaHack
 
-Proyecto de investigación en Deep RL que demuestra **reward hacking visual**:
-un agente PPO aprende a engañar a una CNN de recompensa sin cumplir el objetivo real.
+Proyecto de investigación para demostrar **reward hacking visual** en RL y mitigarlo con **reward modeling por preferencias**.
 
 ## Estructura
-```
+
+```text
 chromahack/
-├── envs/chroma_env.py        # Entorno Gymnasium (juego visual)
-├── models/reward_cnn.py      # CNN proxy frágil (TinyCNN / ResNet18)
-├── training/train_ppo.py     # Entrenamiento PPO con SB3
-├── eval/eval_hidden.py       # Evaluación con R* oculto
-└── metrics/hacking_metrics.py
+  chromahack/
+    envs/chroma_env.py
+    data/generate_dataset.py
+    data/inspect_dataset.py
+    models/reward_cnn.py
+    training/train_proxy_cnn.py
+    training/train_ppo.py
+    evaluation/eval_hidden.py
+    evaluation/hacking_metrics.py
+    intervention/preference_reward_model.py
+  scripts/
+    smoke_test.py
+    run_experiment.py
 ```
 
-## Quick start
+## Instalación
 
 ```bash
-# 1. Instalar dependencias
 pip install -r requirements.txt
-
-# 2. Entrenar (modo rápido, ~30 min en CPU)
-python training/train_ppo.py --mode tiny --total_steps 200000 --out_dir runs/exp_001
-
-# 3. Evaluar el hacking
-python eval/eval_hidden.py --model_dir runs/exp_001
-
-# 4. Ver métricas en TensorBoard
-tensorboard --logdir runs/exp_001/tb_logs
 ```
 
-## Señal de reward hacking
-La métrica clave está en `eval_results/proxy_vs_true.png`:
-- Si la curva **proxy sube** pero **R* se queda baja** → hacking confirmado
-- El **gap** (área entre curvas) es la evidencia cuantitativa principal
+## Flujo rápido
 
-## Conexión con tu repo de segmentación
-En `models/reward_cnn.py`, el modo `--mode resnet` usa ResNet18 preentrenado.
-Puedes cargar los pesos de `modelo.pth` de tu repo como backbone:
+### Smoke test
 
-```python
-model = ResNetProxy()
-# Cargar pesos de tu repo (solo el backbone, adaptar cabeza)
-state = torch.load("ruta/a/modelo.pth")
-model.backbone.load_state_dict(state, strict=False)
+```bash
+python scripts/smoke_test.py
+python scripts/run_experiment.py --smoke-test
 ```
 
-Esto crea un distributional shift deliberado:
-backbone entrenado en ropa → evalúa frames de un juego → fragility natural.
+### Fase A (hacking)
+
+```bash
+python scripts/run_experiment.py --phase A --quick
+```
+
+### Fase B (intervención)
+
+```bash
+python scripts/run_experiment.py --phase B --quick --out_dir runs/full_experiment
+```
+
+### Fase AB completa
+
+```bash
+python scripts/run_experiment.py --phase AB
+```
+
+## Comandos modulares
+
+```bash
+python -m chromahack.data.generate_dataset --fragility high --visualize
+python -m chromahack.training.train_proxy_cnn --mode tiny --epochs 25
+python -m chromahack.training.train_ppo --mode tiny --total_steps 200000
+python -m chromahack.evaluation.eval_hidden --model_dir runs/exp_001
+```
+
+## Decisión sobre modelo de segmentación de 5 prendas
+
+El pipeline principal usa TinyCNN/ResNet18 estándar por robustez y reproducibilidad.
+
+- En este repositorio no se encontró un checkpoint de segmentación (`*.pth`/`*.pt`), por lo que no se puede validar reutilización directa.
+- Se mantiene soporte opcional de carga de pesos en `train_proxy_cnn.py` (`--pretrained_path`) para experimentar transferencia parcial.
+- No se fuerza su uso por **mismatch de dominio** (prendas vs tablero sintético), que puede introducir sesgo OOD difícil de controlar.
+
+## Resultados esperados
+
+- En Fase A: aumento de recompensa proxy con mejora limitada en R*.
+- En Fase B: reducción del gap proxy-true y mejora de correlación proxy-vs-true.
+
