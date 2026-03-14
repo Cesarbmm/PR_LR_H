@@ -7,16 +7,15 @@ Ejecuta DESPUÉS de generate_dataset.py para verificar que:
   3. Los frames adversariales son efectivamente engañosos
 
 Uso:
-  python data/inspect_dataset.py --dataset data/synthetic/dataset.pkl
+  python -m chromahack.data.inspect_dataset --dataset data/synthetic/dataset.pkl
 """
 
-import sys, os, pickle, json
+import os, pickle, json
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def inspect(dataset_path: str, out_dir: str = None):

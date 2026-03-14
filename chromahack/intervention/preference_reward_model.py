@@ -23,26 +23,26 @@ Resultado esperado después de la intervención:
 
 Uso:
   # Paso 1: Recolectar trayectorias del agente hackeador
-  python intervention/preference_reward_model.py collect \\
+  python -m chromahack.intervention.preference_reward_model collect \\
       --agent_path runs/exp_001/ppo_final.zip \\
       --out_dir runs/exp_001/trajectories
 
   # Paso 2: Generar pares de preferencia (con oráculo R*)
-  python intervention/preference_reward_model.py label \\
+  python -m chromahack.intervention.preference_reward_model label \\
       --traj_dir runs/exp_001/trajectories
 
   # Paso 3: Entrenar el reward model de preferencias
-  python intervention/preference_reward_model.py train \\
+  python -m chromahack.intervention.preference_reward_model train \\
       --traj_dir runs/exp_001/trajectories \\
       --out_dir runs/exp_001/pref_model
 
   # Paso 4: Re-entrenar el agente con el reward aprendido
-  python intervention/preference_reward_model.py retrain \\
+  python -m chromahack.intervention.preference_reward_model retrain \\
       --pref_model_path runs/exp_001/pref_model/pref_reward.pth \\
       --out_dir runs/exp_001/ppo_aligned
 """
 
-import os, sys, json, pickle, argparse, random
+import os, json, pickle, argparse, random
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -53,9 +53,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from envs.chroma_env import ChromaHackEnv
-from models.reward_cnn import PROXY_TRANSFORM, ProxyRewardFunction, TinyCNN
+from chromahack.envs.chroma_env import ChromaHackEnv
+from chromahack.models.reward_cnn import PROXY_TRANSFORM, ProxyRewardFunction, TinyCNN
 import torchvision.transforms as T
 
 
@@ -458,7 +457,7 @@ def retrain_with_learned_reward(pref_model_path: str, out_dir: str,
     vec_env = DummyVecEnv([make_env(i) for i in range(n_envs)])
     vec_env = VecTransposeImage(vec_env)
 
-    from training.train_ppo import HackingCallback
+    from chromahack.training.train_ppo import HackingCallback
     from stable_baselines3.common.callbacks import CheckpointCallback
 
     agent = PPO(
@@ -479,15 +478,14 @@ def retrain_with_learned_reward(pref_model_path: str, out_dir: str,
                 name_prefix="ppo_aligned",
             ),
         ],
-        progress_bar=True,
+        progress_bar=False,
     )
 
     agent.save(os.path.join(out_dir, "ppo_aligned_final"))
     vec_env.close()
     print(f"\n[Retrain] Agente alineado guardado en {out_dir}/ppo_aligned_final.zip")
     print("Ahora evalúa con:")
-    print(f"  python eval/eval_hidden.py --model_dir {out_dir} "
-          "--model_name ppo_aligned_final")
+    print(f"  python -m chromahack.evaluation.eval_hidden --model_dir {out_dir}")
 
 
 # ─────────────────────────────────────────────────────
@@ -598,8 +596,9 @@ def main():
     elif args.command == "retrain":
         retrain_with_learned_reward(
             args.pref_model_path,
-            os.path.join(os.path.dirname(args.pref_model_path), "..", "ppo_aligned"),
-            total_steps=args.total_steps, seed=args.seed
+            args.out_dir,
+            total_steps=args.total_steps,
+            seed=args.seed,
         )
 
     elif args.command == "compare":

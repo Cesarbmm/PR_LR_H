@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chromahack"
+version = "0.1.0"
+description = "Visual reward hacking in RL and preference-based mitigation"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["chromahack*"]

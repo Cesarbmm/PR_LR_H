@@ -14,25 +14,24 @@ usa --mode resnet y --pretrained_path ruta/a/modelo.pht
 
 Uso:
   # Modo rápido (semana 1)
-  python training/train_proxy_cnn.py --mode tiny
+  python -m chromahack.training.train_proxy_cnn --mode tiny
 
   # Conectar tu repo de segmentación (semana 3)
-  python training/train_proxy_cnn.py \\
+  python -m chromahack.training.train_proxy_cnn \\
       --mode resnet \\
       --pretrained_path /ruta/a/modelo.pht \\
       --freeze_backbone \\
       --epochs 30
 
   # Ver qué aprende la CNN (grad-CAM lite)
-  python training/train_proxy_cnn.py --mode tiny --gradcam
+  python -m chromahack.training.train_proxy_cnn --mode tiny --gradcam
 """
 
-import os, sys, json, pickle, argparse, time
+import os, json, pickle, argparse, time
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
 
 import torch
 import torch.nn as nn
@@ -40,9 +39,8 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.reward_cnn import TinyCNN, ResNetProxy, ProxyRewardFunction, PROXY_TRANSFORM
-from data.generate_dataset import SyntheticDatasetGenerator
+from chromahack.models.reward_cnn import TinyCNN, ResNetProxy, ProxyRewardFunction, PROXY_TRANSFORM
+from chromahack.data.generate_dataset import SyntheticDatasetGenerator
 
 
 # ─────────────────────────────────────────────────────
@@ -183,9 +181,9 @@ def fragility_report(model, val_frames, val_labels, val_samples,
     proxy = ProxyRewardFunction(model, device=device)
     results_by_variant = {}
 
-    for sample, label in zip(val_samples, val_labels):
-        variant = getattr(sample, "variant", "unknown")
-        score   = proxy(sample.frame)
+    for frame, sample, label in zip(val_frames, val_samples, val_labels):
+        variant = sample.get("variant", "unknown") if isinstance(sample, dict) else getattr(sample, "variant", "unknown")
+        score = proxy(frame)
         correct = (score > 0.5) == (label == 1)
 
         if variant not in results_by_variant:
@@ -301,11 +299,18 @@ def main(args):
     dataset_path = os.path.join(args.dataset_dir, "dataset.pkl")
     if os.path.exists(dataset_path):
         print(f"\n[1/5] Cargando dataset desde {dataset_path}...")
-        with open(dataset_path, "rb") as f:
-            data = pickle.load(f)
-        frames  = data["frames"]
-        labels  = data["labels"]
-        samples = data.get("samples", [None] * len(frames))
+        try:
+            with open(dataset_path, "rb") as f:
+                data = pickle.load(f)
+            frames = data["frames"]
+            labels = data["labels"]
+            samples = data.get("samples", [None] * len(frames))
+        except Exception as exc:
+            print(f"  [WARN] No se pudo deserializar dataset.pkl ({exc}). Regenerando...")
+            gen = SyntheticDatasetGenerator(fragility=args.fragility, base_seed=args.seed, out_dir=args.dataset_dir)
+            frames, labels = gen.generate(verbose=True)
+            gen.save()
+            samples = gen.samples
     else:
         print(f"\n[1/5] Generando dataset (fragility={args.fragility})...")
         gen = SyntheticDatasetGenerator(
@@ -322,11 +327,16 @@ def main(args):
 
     # ── 2. Split train / val estratificado ───────────
     print("\n[2/5] Dividiendo train/val (80/20 estratificado)...")
-    idx = list(range(len(frames)))
-    tr_idx, va_idx = train_test_split(
-        idx, test_size=0.2, random_state=args.seed,
-        stratify=labels
-    )
+    rng = np.random.default_rng(args.seed)
+    idx_all = np.arange(len(frames))
+    labels_arr = np.array(labels)
+    tr_idx, va_idx = [], []
+    for cls in np.unique(labels_arr):
+        cls_idx = idx_all[labels_arr == cls]
+        rng.shuffle(cls_idx)
+        n_val = max(1, int(0.2 * len(cls_idx)))
+        va_idx.extend(cls_idx[:n_val].tolist())
+        tr_idx.extend(cls_idx[n_val:].tolist())
 
     tr_frames  = [frames[i]  for i in tr_idx]
     tr_labels  = [labels[i]  for i in tr_idx]
@@ -379,7 +389,7 @@ def main(args):
     )
     # Scheduler: reduce LR cuando val_loss se estanca
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=5, factor=0.5, verbose=False
+        optimizer, mode="min", patience=5, factor=0.5
     )
     criterion = nn.BCELoss()
 
@@ -476,7 +486,7 @@ def main(args):
     print(f"  Val accuracy     : {best_val_acc:.3f}")
     print(f"  Modelo guardado  : {final_path}")
     print(f"\nSiguiente paso:")
-    print(f"  python training/train_ppo.py --mode tiny \\")
+    print(f"  python -m chromahack.training.train_ppo --mode tiny \\")
     print(f"    --proxy_path {final_path} \\")
     print(f"    --total_steps 200000 --out_dir runs/exp_001")
     print(f"{'='*50}")
