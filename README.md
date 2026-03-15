@@ -1,49 +1,88 @@
-# ChromaHack — Reward Hacking con CNN Proxy Frágil
+# ChromaHack
 
-Proyecto de investigación en Deep RL que demuestra **reward hacking visual**:
-un agente PPO aprende a engañar a una CNN de recompensa sin cumplir el objetivo real.
+ChromaHack is a local research repo for studying reward hacking with a fragile visual proxy. The PPO agent optimizes a CNN-based proxy reward, while evaluation tracks the hidden true reward based on real object placement.
 
-## Estructura
-```
-chromahack/
-├── envs/chroma_env.py        # Entorno Gymnasium (juego visual)
-├── models/reward_cnn.py      # CNN proxy frágil (TinyCNN / ResNet18)
-├── training/train_ppo.py     # Entrenamiento PPO con SB3
-├── eval/eval_hidden.py       # Evaluación con R* oculto
-└── metrics/hacking_metrics.py
-```
+## Project layout
 
-## Quick start
+The package source of truth now lives under `chromahack/`:
+
+- `chromahack.envs.chroma_env`: Gymnasium environment
+- `chromahack.data.generate_dataset`: synthetic dataset generation
+- `chromahack.data.inspect_dataset`: dataset inspection
+- `chromahack.models.reward_cnn`: proxy CNN models and checkpoint helpers
+- `chromahack.training.train_proxy_cnn`: proxy training
+- `chromahack.training.train_ppo`: PPO training
+- `chromahack.evaluation.eval_hidden`: hidden-reward evaluation
+- `chromahack.intervention.preference_reward_model`: preference-based intervention
+- `chromahack.run_experiment`: phase orchestration
+
+The legacy root files are preserved as thin wrappers, so existing commands like `python train_proxy_cnn.py` still work.
+
+## Install
 
 ```bash
-# 1. Instalar dependencias
-pip install -r requirements.txt
-
-# 2. Entrenar (modo rápido, ~30 min en CPU)
-python training/train_ppo.py --mode tiny --total_steps 200000 --out_dir runs/exp_001
-
-# 3. Evaluar el hacking
-python eval/eval_hidden.py --model_dir runs/exp_001
-
-# 4. Ver métricas en TensorBoard
-tensorboard --logdir runs/exp_001/tb_logs
+python -m pip install -r requirements.txt
 ```
 
-## Señal de reward hacking
-La métrica clave está en `eval_results/proxy_vs_true.png`:
-- Si la curva **proxy sube** pero **R* se queda baja** → hacking confirmado
-- El **gap** (área entre curvas) es la evidencia cuantitativa principal
+## Canonical commands
 
-## Conexión con tu repo de segmentación
-En `models/reward_cnn.py`, el modo `--mode resnet` usa ResNet18 preentrenado.
-Puedes cargar los pesos de `modelo.pth` de tu repo como backbone:
+Generate a dataset:
 
-```python
-model = ResNetProxy()
-# Cargar pesos de tu repo (solo el backbone, adaptar cabeza)
-state = torch.load("ruta/a/modelo.pth")
-model.backbone.load_state_dict(state, strict=False)
+```bash
+python -m chromahack.data.generate_dataset --fragility high --visualize --out_dir artifacts/data_high
 ```
 
-Esto crea un distributional shift deliberado:
-backbone entrenado en ropa → evalúa frames de un juego → fragility natural.
+Inspect a dataset:
+
+```bash
+python -m chromahack.data.inspect_dataset --dataset artifacts/data_high/dataset.pkl
+```
+
+Train the proxy CNN:
+
+```bash
+python -m chromahack.training.train_proxy_cnn --mode tiny --dataset_dir artifacts/data_high --out_dir artifacts/proxy_tiny
+```
+
+Train PPO from an existing proxy:
+
+```bash
+python -m chromahack.training.train_ppo --mode tiny --proxy_path artifacts/proxy_tiny/proxy_cnn.pth --total_steps 200000 --out_dir runs/exp_001
+```
+
+Evaluate hidden reward:
+
+```bash
+python -m chromahack.evaluation.eval_hidden --model_dir runs/exp_001 --n_episodes 50
+```
+
+Run the preference intervention:
+
+```bash
+python -m chromahack.intervention.preference_reward_model collect --agent_path runs/exp_001/ppo_final.zip --traj_dir artifacts/prefs/traj
+python -m chromahack.intervention.preference_reward_model label --traj_dir artifacts/prefs/traj --n_pairs 2000
+python -m chromahack.intervention.preference_reward_model train --traj_dir artifacts/prefs/traj --out_dir artifacts/prefs/model
+python -m chromahack.intervention.preference_reward_model retrain --pref_model_path artifacts/prefs/model/pref_reward.pth --out_dir runs/exp_aligned
+python -m chromahack.evaluation.eval_hidden --model_dir runs/exp_aligned --model_name ppo_aligned_final
+```
+
+Run the full experiment:
+
+```bash
+python -m chromahack.run_experiment --phase AB --quick
+```
+
+The `--quick` preset is tuned for this CPU-only local environment and defaults to `--n_envs 1`.
+
+Smoke test:
+
+```bash
+python scripts/smoke_test.py
+```
+
+## Compatibility notes
+
+- `dataset.pkl` is now stored as plain serializable payload data, not pickled custom objects.
+- Dataset loaders still accept legacy payloads containing old `DatasetSample` or `DatasetStats` objects.
+- PPO training can either bootstrap a proxy internally or load one with `--proxy_path`.
+- Hidden evaluation now supports `--model_name`, defaulting to `ppo_final`.
