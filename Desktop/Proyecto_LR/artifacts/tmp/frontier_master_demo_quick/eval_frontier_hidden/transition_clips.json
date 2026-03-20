@@ -1,0 +1,50 @@
+[
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1901,
+    "episode_index": 0,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_000.json"
+  },
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1874,
+    "episode_index": 1,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_001.json"
+  },
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1755,
+    "episode_index": 2,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_002.json"
+  },
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1856,
+    "episode_index": 3,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_003.json"
+  },
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1930,
+    "episode_index": 4,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_004.json"
+  },
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1894,
+    "episode_index": 5,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_005.json"
+  }
+]

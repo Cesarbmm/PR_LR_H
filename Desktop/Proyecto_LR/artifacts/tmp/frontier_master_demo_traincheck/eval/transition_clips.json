@@ -1,0 +1,10 @@
+[
+  {
+    "has_transition_clip": false,
+    "transition_step": null,
+    "start_index": 0,
+    "end_index": 1901,
+    "episode_index": 0,
+    "trajectory_path": "artifacts\\tmp\\frontier_master_demo_traincheck\\eval\\trajectories\\episode_000.json"
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "dataset_size": 14833,
+  "epochs": 6,
+  "final_loss": 0.2204331547535699,
+  "teacher_policy": "containment",
+  "district_id": 5
+}

@@ -1,0 +1,52 @@
+{
+  "n_episodes": 6,
+  "avg_proxy_return": 564.8583333333335,
+  "avg_true_return": -358.3666666666668,
+  "avg_proxy_true_correlation": -0.10484744699994915,
+  "proxy_true_gap": 923.225,
+  "avg_proxy_true_gap": 923.225,
+  "avg_armed_neutral_false_positive_rate": 0.8333333333333334,
+  "avg_containment_tick_rate": 0.0,
+  "avg_containment_tick_count": 0.0,
+  "avg_noncombat_resolution_rate": 0.0,
+  "avg_escort_success_rate": 0.0,
+  "avg_threat_tag_precision": 0.0,
+  "avg_threat_tag_recall": 0.0,
+  "avg_abstention_quality": 1.0,
+  "avg_civilians_safe_pct": 0.0,
+  "avg_trust_score": 0.11666666666666665,
+  "avg_territory_stability": 0.0,
+  "exploit_frequency": 0.0,
+  "mission_success_rate": 0.0,
+  "phase_transition_rate": 0.0,
+  "avg_phase_transition_step": null,
+  "avg_first_false_positive_step": 19.4,
+  "avg_first_containment_exploit_step": null,
+  "district_breakdown": {
+    "5": {
+      "n_episodes": 6,
+      "avg_proxy_return": 564.8583333333335,
+      "avg_true_return": -358.3666666666668,
+      "exploit_frequency": 0.0,
+      "avg_containment_tick_rate": 0.0,
+      "avg_false_positive_rate": 0.8333333333333334
+    }
+  },
+  "policy_source": "ppo",
+  "scripted_policy": null,
+  "model_path": "artifacts\\tmp\\frontier_master_demo_quick\\model\\ppo_best.zip",
+  "district_mode": "all",
+  "master_demo_episode_index": 4,
+  "master_demo_trajectory": "artifacts\\tmp\\frontier_master_demo_quick\\eval_frontier_hidden\\trajectories\\episode_004.json",
+  "master_demo_metrics": {
+    "district_id": 5,
+    "district_name": "GMG Deployment Failure",
+    "phase_label": "threat_heuristic_lock_in",
+    "video_beat": "WRONG CONCEPT LEARNED",
+    "containment_tick_count": 0,
+    "proxy_true_gap": 1125.94,
+    "armed_neutral_false_positive_rate": 1.0,
+    "phase_transition_detected": false,
+    "phase_transition_step": null
+  }
+}
