@@ -1,0 +1,125 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{xcolor}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
+\title{Informe t\'ecnico de migraci\'on y validaci\'on local de ChromaHack}
+\author{Codex}
+\date{14 de marzo de 2026}
+
+\begin{document}
+\maketitle
+
+\section{Objetivo}
+Este documento resume la migraci\'on realizada sobre el repositorio \texttt{PR\_LR\_H}, la estabilizaci\'on del pipeline experimental y la validaci\'on local del flujo completo \texttt{A+B} en una m\'aquina CPU-only. El objetivo fue dejar el proyecto ejecutable, empaquetado y documentado sin depender de cambios pendientes en otra rama.
+
+\section{Cambios principales}
+\begin{itemize}
+    \item Se reorganiz\'o el c\'odigo en el paquete \texttt{chromahack/} como fuente can\'onica, separando \texttt{envs}, \texttt{data}, \texttt{models}, \texttt{training}, \texttt{evaluation}, \texttt{intervention} y \texttt{metrics}.
+    \item Se mantuvieron los scripts del directorio ra\'iz como wrappers finos para preservar compatibilidad con el flujo previo.
+    \item Se a\~nadi\'o \texttt{pyproject.toml} para permitir ejecuci\'on modular con \texttt{python -m}.
+    \item Se extrajo el logger de m\'etricas de hacking a un m\'odulo compartido reutilizado por PPO, evaluaci\'on oculta e intervenci\'on.
+    \item Se normaliz\'o el formato de \texttt{dataset.pkl} para almacenar estructuras serializables simples y se mantuvo compatibilidad con datasets heredados.
+    \item Se elimin\'o la dependencia dura de \texttt{scikit-learn} mediante una ruta interna de partici\'on estratificada.
+    \item Se retir\'o la dependencia de \texttt{pygame}; el render del entorno ahora funciona sin ese requisito, lo que evita bloqueos de instalaci\'on en Python moderno.
+    \item Se ajust\'o PPO para aceptar \texttt{--proxy\_path}, \texttt{--n\_steps} configurable y checkpoints opcionales.
+    \item Se corrigi\'o la evaluaci\'on oculta para soportar \texttt{--model\_name} y \texttt{--proxy\_path}.
+    \item Se corrigi\'o la intervenci\'on de preferencias para que \texttt{retrain} respete exactamente \texttt{--out\_dir}.
+    \item Se reescribi\'o la orquestaci\'on del experimento para usar \texttt{sys.executable} y \texttt{subprocess.run(check=True)} sobre los entrypoints reales del paquete.
+\end{itemize}
+
+\section{Estructura final}
+La estructura operativa principal del repositorio queda resumida as\'i:
+
+\begin{longtable}{>{\ttfamily}p{0.33\textwidth} p{0.57\textwidth}}
+\toprule
+Ruta & Prop\'osito \\
+\midrule
+\textnormal{chromahack/envs} & Entorno ChromaHack y API de recompensa verdadera/proxy. \\
+\textnormal{chromahack/data} & Generaci\'on, inspecci\'on y carga de datasets serializables. \\
+\textnormal{chromahack/models} & Modelos de proxy reward y utilidades relacionadas. \\
+\textnormal{chromahack/training} & Entrenamiento de CNN proxy y PPO. \\
+\textnormal{chromahack/evaluation} & Evaluaci\'on oculta y generaci\'on de m\'etricas/figuras. \\
+\textnormal{chromahack/intervention} & Pipeline de preferencias y realineaci\'on. \\
+\textnormal{chromahack/metrics} & Logger compartido de hacking. \\
+\textnormal{scripts/smoke\_test.py} & Smoke test de integraci\'on. \\
+\textnormal{README.md} & Documentaci\'on de uso y comandos actualizados. \\
+\bottomrule
+\end{longtable}
+
+\section{Ajustes para CPU y ruta r\'apida A+B}
+Se endureci\'o el modo \texttt{quick} para que el comando:
+
+\begin{quote}
+\texttt{python -m chromahack.run\_experiment --phase AB --quick --mode tiny --n\_envs 1}
+\end{quote}
+
+sea el camino principal de validaci\'on local en CPU. Los presets finales quedaron as\'i:
+
+\begin{itemize}
+    \item Fase A: \texttt{n\_ordered=64}, \texttt{n\_disordered=64}, \texttt{n\_partial=16}, \texttt{n\_adversarial=16}, \texttt{proxy epochs=3}, \texttt{total\_steps=4096}, \texttt{n\_steps=128}, \texttt{eval episodes=5}.
+    \item Fase B: \texttt{collect episodes=10}, \texttt{segment\_len=12}, \texttt{label pairs=64}, \texttt{preference epochs=3}, \texttt{batch size=8}, \texttt{retrain total\_steps=4096}, \texttt{n\_steps=128}, \texttt{eval episodes=5}.
+    \item La evaluaci\'on alineada reutiliza el proxy hackeado original mediante \texttt{--proxy\_path}, evitando la ruta de fallback con m\'etricas proxy nulas.
+    \item Para \texttt{--phase B} se a\~nadi\'o \texttt{--hacked\_dir}; si faltan artefactos de la fase A, el proceso falla r\'apido con un error claro.
+\end{itemize}
+
+\section{Validaci\'on realizada}
+Se ejecutaron y validaron localmente los siguientes comandos:
+
+\begin{longtable}{>{\ttfamily}p{0.60\textwidth} p{0.24\textwidth}}
+\toprule
+Comando & Resultado \\
+\midrule
+\textnormal{python -m compileall chromahack scripts chroma\_env.py reward\_cnn.py generate\_dataset.py inspect\_dataset.py train\_proxy\_cnn.py train\_ppo.py eval\_hidden.py preference\_reward\_model.py run\_experiment.py} & OK \\
+\textnormal{python scripts/smoke\_test.py} & OK \\
+\textnormal{python -m chromahack.run\_experiment --smoke\_test} & OK \\
+\textnormal{python -m chromahack.run\_experiment --phase AB --quick --mode tiny --n\_envs 1 --out\_dir runs/ab\_quick\_cpu} & OK \\
+\textnormal{python -m chromahack.run\_experiment --phase B --quick --out\_dir runs/ab\_quick\_cpu\_missingcheck} & Falla esperada \\
+\bottomrule
+\end{longtable}
+
+La corrida de aceptaci\'on \texttt{AB quick} finaliz\'o correctamente en aproximadamente 10.8 minutos sobre CPU.
+
+\section{Artefactos verificados}
+Se comprob\'o la presencia de los artefactos clave del pipeline:
+
+\begin{itemize}
+    \item \texttt{runs/ab\_quick\_cpu/phase\_A/ppo\_hacked/eval\_results/summary.json}
+    \item \texttt{runs/ab\_quick\_cpu/phase\_B/ppo\_aligned/eval\_results/summary.json}
+    \item \texttt{runs/ab\_quick\_cpu/phase\_B/figures/before\_after\_intervention.png}
+    \item Modelos esperados: \texttt{proxy\_cnn.pth}, \texttt{ppo\_final.zip} y \texttt{ppo\_aligned\_final.zip}
+\end{itemize}
+
+La evaluaci\'on alineada us\'o el proxy hackeado reutilizado, por lo que las m\'etricas proxy de fase B no cayeron al fallback de ceros. En el presupuesto \texttt{tiny quick} actual, la mejora de alineaci\'on no fue material; esto valida la ejecuci\'on end-to-end, no una mejora experimental concluyente.
+
+\section{Archivos entregados}
+El cambio queda preparado para trabajo futuro con los siguientes elementos relevantes:
+
+\begin{itemize}
+    \item Paquete \texttt{chromahack/} como base del desarrollo.
+    \item Wrappers en la ra\'iz para compatibilidad.
+    \item \texttt{README.md} actualizado con comandos actuales.
+    \item \texttt{.gitignore} y directorios \texttt{runs/}, \texttt{artifacts/} con higiene de repo.
+    \item Este documento \LaTeX{} como base para generar una versi\'on PDF cuando se requiera.
+\end{itemize}
+
+\section{Siguientes pasos recomendados}
+\begin{itemize}
+    \item Ejecutar un presupuesto mayor que \texttt{tiny quick} si se quiere evaluar mejora real por intervenci\'on.
+    \item Versionar resultados experimentales finales fuera del repositorio de c\'odigo, manteniendo en Git solo la configuraci\'on y scripts.
+    \item Generar una versi\'on PDF formal de este informe para anexarla a entregas o reportes.
+\end{itemize}
+
+\end{document}
