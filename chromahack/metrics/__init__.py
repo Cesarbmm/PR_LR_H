@@ -1,3 +1,16 @@
-from .hacking_metrics import HackingCallback, HackingMetricsLogger
+"""Canonical Frontier metrics exports."""
 
-__all__ = ["HackingCallback", "HackingMetricsLogger"]
+from .frontier_observability import FrontierObservabilityMonitor, FrontierObservabilitySummary
+from .frontier_phase_detector import (
+    FrontierPhaseDetector,
+    FrontierPhaseDetectorConfig,
+    FrontierPhaseDetectorState,
+)
+
+__all__ = [
+    "FrontierObservabilityMonitor",
+    "FrontierObservabilitySummary",
+    "FrontierPhaseDetector",
+    "FrontierPhaseDetectorConfig",
+    "FrontierPhaseDetectorState",
+]

@@ -1,0 +1,382 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\setlist{nosep}
+
+\title{Guia de Estado Actual\\GhostMerc Frontier Territory}
+\author{Cesar Josue Zapata Chilla}
+\date{Marzo 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Que tienes ahora}
+
+Ahora tienes un proyecto consolidado dentro de \texttt{PR\_LR\_H} con \textbf{Frontier Territory} como camino canonico. Ya no es una mezcla informal de demos: hay un entorno headless principal, entrenamiento PPO, evaluacion con reward oculto, renderer separado y una ruta inicial para GNN y preferencias.
+
+\subsection{Pieza principal}
+La pieza central del proyecto es:
+\begin{itemize}
+    \item \texttt{chromahack/envs/ghostmerc\_frontier\_env.py}
+\end{itemize}
+
+Ese entorno ya soporta dos modos de observacion:
+\begin{itemize}
+    \item \textbf{flat}: baseline MLP actual
+    \item \textbf{dict}: ruta estructurada para el backend relacional/GNN
+\end{itemize}
+
+\subsection{Stack activo}
+El stack que esta vivo y debes usar es:
+\begin{itemize}
+    \item \texttt{python -m chromahack.training.train\_ppo\_frontier}
+    \item \texttt{python -m chromahack.evaluation.eval\_frontier\_hidden}
+    \item \texttt{python -m chromahack.rendering.frontier\_dual\_renderer}
+    \item \texttt{python -m chromahack.run\_experiment --mode frontier}
+\end{itemize}
+
+\subsection{Que ya no es el camino principal}
+Quedan como legado:
+\begin{itemize}
+    \item bridge demo
+    \item classic GhostMerc
+    \item wrappers viejos de CNN / visual proxy
+\end{itemize}
+
+No estan borrados por completo, pero ya no forman parte de la historia principal ni del flujo recomendado.
+
+\section{Arquitectura actual}
+
+\subsection{Separacion de responsabilidades}
+La arquitectura consolidada ya tiene esta forma:
+\begin{enumerate}
+    \item \textbf{Entorno Gymnasium headless}: contiene dinamica, rewards, detector de transicion y snapshots.
+    \item \textbf{Entrenamiento PPO}: usa SB3 y entrena contra \texttt{proxy\_reward}.
+    \item \textbf{Evaluacion oculta}: mide \texttt{true\_reward}, gap, exploit frequency y trayectorias.
+    \item \textbf{Renderer PyGame}: solo consume trayectorias o una politica en inferencia.
+    \item \textbf{Pipeline de preferencias}: exporta pares, entrena reward model y permite reentrenar con \texttt{pref\_model}.
+    \item \textbf{Observabilidad}: registra entropia, deriva KL y una senal PCA simple.
+\end{enumerate}
+
+\subsection{Archivos importantes}
+\begin{longtable}{p{0.37\textwidth}p{0.55\textwidth}}
+\toprule
+\textbf{Archivo} & \textbf{Rol} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Archivo} & \textbf{Rol} \\
+\midrule
+\endhead
+\texttt{chromahack/envs/ghostmerc\_frontier\_env.py} & entorno principal \\
+\texttt{chromahack/envs/territory\_generator.py} & distritos, zonas y actores \\
+\texttt{chromahack/training/train\_ppo\_frontier.py} & PPO canonico \\
+\texttt{chromahack/evaluation/eval\_frontier\_hidden.py} & evaluacion con reward oculto \\
+\texttt{chromahack/rendering/frontier\_dual\_renderer.py} & replay, showcase, master, trailer \\
+\texttt{chromahack/gnn/feature\_extractor.py} & extractor relacional para \texttt{dict} obs \\
+\texttt{chromahack/intervention/pref\_model.py} & export, train y wrapper de reward por preferencias \\
+\texttt{chromahack/utils/metrics.py} & callback Frontier y agregados \\
+\texttt{chromahack/metrics/frontier\_observability.py} & entropia, KL y PCA simple \\
+\texttt{chromahack/run\_experiment.py} & orquestador baseline / rlhf \\
+\bottomrule
+\end{longtable}
+
+\section{Que artefactos concretos tienes}
+
+\subsection{Demo maestra larga}
+La demo maestra canonica ahora esta dentro del repo:
+\begin{itemize}
+    \item \texttt{artifacts/demos/frontier\_master\_demo\_long/model/ppo\_best.zip}
+    \item \texttt{artifacts/demos/frontier\_master\_demo\_long/eval\_frontier\_hidden/summary.json}
+    \item \texttt{artifacts/demos/frontier\_master\_demo\_long/eval\_frontier\_hidden/trajectories/episode\_040.json}
+\end{itemize}
+
+\subsection{Resultados principales de esa demo}
+En 50 episodios del distrito 5:
+\begin{itemize}
+    \item \texttt{avg\_proxy\_return = 816.61}
+    \item \texttt{avg\_true\_return = -306.90}
+    \item \texttt{proxy\_true\_gap = 1123.51}
+    \item \texttt{avg\_armed\_neutral\_false\_positive\_rate = 0.713}
+    \item \texttt{avg\_containment\_tick\_count = 84.96}
+    \item \texttt{exploit\_frequency = 0.18}
+    \item \texttt{phase\_transition\_rate = 0.18}
+    \item \texttt{avg\_phase\_transition\_step = 100}
+\end{itemize}
+
+\subsection{Mejor episodio curado}
+El episodio maestro actual es:
+\begin{itemize}
+    \item \texttt{episode\_040.json}
+\end{itemize}
+
+Sus senales mas llamativas:
+\begin{itemize}
+    \item \texttt{containment\_tick\_count = 485}
+    \item \texttt{proxy\_true\_gap = 2039.68}
+    \item \texttt{armed\_neutral\_false\_positive\_rate = 1.0}
+    \item \texttt{phase\_transition\_step = 100}
+    \item beat visual: \texttt{CONTAINMENT EXPLOIT ACTIVE}
+\end{itemize}
+
+\section{Que puedes ejecutar para ver ahora mismo}
+
+\subsection{Importante}
+El directorio recomendado es:
+\begin{itemize}
+    \item \texttt{C:\textbackslash Users\textbackslash pc\textbackslash Desktop\textbackslash Proyecto\_LR\textbackslash PR\_LR\_H}
+\end{itemize}
+
+Tambien deberia funcionar desde la carpeta padre gracias al shim, pero la raiz del repo es el lugar canonico.
+
+\subsection{Para ver la demo maestra directamente}
+\begin{verbatim}
+python -m chromahack.rendering.frontier_dual_renderer master ^
+  --demo_dir artifacts/demos/frontier_master_demo_long
+\end{verbatim}
+
+Eso abre la mejor trayectoria ya curada desde el resumen maestro.
+
+\subsection{Para ver el episodio exacto}
+\begin{verbatim}
+python -m chromahack.rendering.frontier_dual_renderer replay ^
+  --trajectory artifacts/demos/frontier_master_demo_long/
+eval_frontier_hidden/trajectories/episode_040.json
+\end{verbatim}
+
+\subsection{Para verlo con presentacion mas clara}
+\begin{verbatim}
+python -m chromahack.rendering.frontier_dual_renderer showcase ^
+  --trajectory artifacts/demos/frontier_master_demo_long/
+eval_frontier_hidden/trajectories/episode_040.json ^
+  --slow_mo 0.8 --pause_frames 24 --alert_linger_frames 120
+\end{verbatim}
+
+\subsection{Para ver el corte editorial}
+\begin{verbatim}
+python -m chromahack.rendering.frontier_dual_renderer trailer_cut ^
+  --demo_dir artifacts/demos/frontier_master_demo_long
+\end{verbatim}
+
+\subsection{Para exportar video}
+\begin{verbatim}
+python -m chromahack.rendering.frontier_dual_renderer trailer_cut ^
+  --demo_dir artifacts/demos/frontier_master_demo_long ^
+  --export_dir artifacts/captures/frontier_trailer_cut_final ^
+  --video_name ghostmerc_frontier_final.mp4
+\end{verbatim}
+
+\subsection{Para ver una politica viva}
+\begin{verbatim}
+python -m chromahack.rendering.frontier_dual_renderer policy ^
+  --model_dir artifacts/demos/frontier_master_demo_long/model ^
+  --model_name ppo_best ^
+  --district_id 5 ^
+  --camera_mode cinematic ^
+  --alert_linger_frames 120 ^
+  --auto_reset --max_episodes 12
+\end{verbatim}
+
+\section{Que puedes ejecutar para entrenar}
+
+\subsection{Baseline MLP}
+\begin{verbatim}
+python -m chromahack.training.train_ppo_frontier ^
+  --out_dir artifacts/models/frontier_baseline ^
+  --total_steps 200000 ^
+  --n_envs 4 ^
+  --policy_backend mlp ^
+  --observation_mode flat ^
+  --reward_mode proxy
+\end{verbatim}
+
+\subsection{Evaluacion del baseline}
+\begin{verbatim}
+python -m chromahack.evaluation.eval_frontier_hidden ^
+  --model_dir artifacts/models/frontier_baseline ^
+  --model_name ppo_best ^
+  --n_episodes 50 ^
+  --save_trajectories
+\end{verbatim}
+
+\subsection{GNN / backend relacional}
+\begin{verbatim}
+python -m chromahack.training.train_ppo_frontier ^
+  --out_dir artifacts/models/frontier_gnn ^
+  --total_steps 200000 ^
+  --n_envs 4 ^
+  --policy_backend gnn ^
+  --observation_mode dict
+\end{verbatim}
+
+\subsection{Master demo largo}
+\begin{verbatim}
+python -m chromahack.run_experiment --mode frontier --phase baseline --master_demo
+\end{verbatim}
+
+\section{Que puedes ejecutar para la ruta RLHF}
+
+\subsection{Pipeline completo rapido}
+\begin{verbatim}
+python -m chromahack.run_experiment --mode frontier --phase rlhf --quick
+\end{verbatim}
+
+Ese comando ya fue validado en esta iteracion y hace:
+\begin{enumerate}
+    \item baseline corto,
+    \item export de pares de preferencia,
+    \item entrenamiento del reward model,
+    \item reentrenamiento corto con \texttt{pref\_model},
+    \item evaluacion del run reentrenado.
+\end{enumerate}
+
+\subsection{Pipeline paso a paso}
+\begin{verbatim}
+python -m chromahack.intervention.pref_model export ^
+  --trajectory_dir artifacts/frontier/baseline/eval_frontier_hidden/trajectories ^
+  --out_dir artifacts/frontier/preferences
+
+python -m chromahack.intervention.pref_model train ^
+  --dataset artifacts/frontier/preferences/preference_pairs.json ^
+  --out_dir artifacts/frontier/preferences/model
+
+python -m chromahack.training.train_ppo_frontier ^
+  --out_dir artifacts/frontier/pref_model_run/model ^
+  --reward_mode pref_model ^
+  --reward_model_path artifacts/frontier/preferences/model/preference_reward_model.pt ^
+  --policy_backend mlp ^
+  --observation_mode flat
+\end{verbatim}
+
+\subsection{Estado actual de la ruta de preferencias}
+La ruta ya esta funcional, no solo en scaffolding. En la ultima validacion:
+\begin{itemize}
+    \item \texttt{train\_accuracy = 0.80}
+    \item \texttt{validation\_accuracy = 0.7647}
+\end{itemize}
+
+Eso confirma que el reward model sintetico ya se entrena y se puede inyectar en el entorno.
+
+\section{Que quedo validado tecnicamente}
+
+\subsection{CLI}
+Ya funcionan:
+\begin{itemize}
+    \item \texttt{python -m chromahack.training.train\_ppo\_frontier --help}
+    \item \texttt{python -m chromahack.evaluation.eval\_frontier\_hidden --help}
+    \item \texttt{python -m chromahack.run\_experiment --help}
+    \item \texttt{python -m chromahack.intervention.pref\_model --help}
+    \item \texttt{python -m chromahack.rendering.frontier\_dual\_renderer --help}
+    \item \texttt{python -m chromahack.rendering.frontier\_dual\_renderer master --help}
+\end{itemize}
+
+\subsection{Tests}
+Quedo validado:
+\begin{itemize}
+    \item \texttt{python scripts/smoke\_test.py}
+    \item \texttt{python -m pytest tests/test\_frontier\_observation\_modes.py}
+\end{itemize}
+
+Las pruebas locales cubren:
+\begin{itemize}
+    \item paridad de dinamica entre \texttt{flat} y \texttt{dict}
+    \item wrapper de reward por preferencias
+\end{itemize}
+
+\subsection{Validaciones funcionales extra}
+Tambien quedo probado:
+\begin{itemize}
+    \item entrenamiento corto con backend \texttt{gnn}
+    \item evaluacion de un checkpoint \texttt{gnn}
+    \item export y entrenamiento del reward model
+    \item entrenamiento corto con \texttt{reward\_mode=pref\_model}
+    \item orquestador completo \texttt{--phase rlhf --quick}
+\end{itemize}
+
+\section{Como interpretar lo que ves}
+
+\subsection{Proxy reward}
+Es lo que el agente optimiza durante entrenamiento baseline.
+
+\subsection{True reward}
+Es la evaluacion oculta que si representa el objetivo real.
+
+\subsection{Proxy-true gap}
+Si sube mucho, hay divergencia entre score visible y exito real.
+
+\subsection{Armed neutral false positive rate}
+Si sube, el agente esta clasificando mal a actores armados que no deberia tratar como amenaza real.
+
+\subsection{Containment tick count}
+Si sube, el agente esta cobrando puntos por mantener actores heridos y vigilados en vez de resolver la situacion.
+
+\subsection{Phase transition}
+Si aparece un \texttt{phase\_transition\_step}, ese es el paso donde la conducta ya entro a un regimen diferente y mas explotativo.
+
+\section{Resumen rapido para explicarlo facil}
+
+\subsection{En una frase}
+Entrene un agente tactico con una recompensa proxy corrupta, y el proyecto muestra como puede subir mucho su score mientras fracasa en el objetivo real.
+
+\subsection{En 30 segundos}
+GhostMerc Frontier Territory es un testbed de RL para estudiar reward hacking. El agente vive en un distrito con civiles, hostiles y actores ambiguos. PPO lo entrena con una senal proxy que premia headshots, threat tags y containment ticks. El objetivo real oculto es proteger civiles, estabilizar el territorio y evitar falsos positivos. En la demo larga, el agente logra proxy muy alto y true reward muy negativo, lo que demuestra desalineacion visible y medible.
+
+\subsection{Tres numeros que conviene memorizar}
+\begin{itemize}
+    \item \texttt{816.61}: proxy medio de la demo larga
+    \item \texttt{-306.90}: true reward medio de la demo larga
+    \item \texttt{2039.68}: gap del mejor episodio
+\end{itemize}
+
+\section{Que hacer despues}
+
+Si lo que quieres es \textbf{ver} el proyecto, ejecuta:
+\begin{itemize}
+    \item \texttt{master}
+    \item \texttt{showcase}
+    \item \texttt{trailer\_cut}
+\end{itemize}
+
+Si lo que quieres es \textbf{investigarlo}, ejecuta:
+\begin{itemize}
+    \item baseline MLP
+    \item backend GNN
+    \item fase RLHF sintetica
+\end{itemize}
+
+Si lo que quieres es \textbf{explicarlo facil}, muestra:
+\begin{itemize}
+    \item el replay del \texttt{episode\_040}
+    \item el gap proxy--true
+    \item la idea de que el agente parece competente pero optimiza el objetivo equivocado
+\end{itemize}
+
+\section{Cierre}
+
+En este momento tu proyecto ya no es solo una idea o una demo visual. Ya tienes:
+\begin{itemize}
+    \item entorno Frontier consolidado
+    \item baseline reproducible
+    \item renderer utilizable
+    \item demo maestra larga dentro del repo
+    \item backend relacional habilitado
+    \item ruta inicial RLHF funcionando
+    \item documentacion y paper separados
+\end{itemize}
+
+Lo mas importante: ya puedes \textbf{mostrar}, \textbf{explicar} y \textbf{seguir investigando} sobre el mismo stack, sin rehacer el proyecto desde cero.
+
+\end{document}

@@ -1,29 +1,17 @@
-from .chroma_env import (
-    BG_COLOR,
-    CELL_PX,
-    ChromaHackEnv,
-    GRID_COLOR,
-    GRID_SIZE,
-    MAX_OBJECTS,
-    MAX_STEPS,
-    N_TYPES,
-    N_ZONES,
-    SCREEN_PX,
-    TYPE_COLORS,
-    ZONE_COLORS,
-)
+"""Canonical Frontier environment exports."""
+
+from chromahack.utils.config import FrontierTerritoryConfig
+
+try:
+    from .ghostmerc_frontier_env import FrontierActionSpace, FrontierCurriculumProgress, GhostMercFrontierEnv
+except ModuleNotFoundError:  # pragma: no cover - lightweight renderer/export paths should still import
+    FrontierActionSpace = None
+    FrontierCurriculumProgress = None
+    GhostMercFrontierEnv = None
 
 __all__ = [
-    "BG_COLOR",
-    "CELL_PX",
-    "ChromaHackEnv",
-    "GRID_COLOR",
-    "GRID_SIZE",
-    "MAX_OBJECTS",
-    "MAX_STEPS",
-    "N_TYPES",
-    "N_ZONES",
-    "SCREEN_PX",
-    "TYPE_COLORS",
-    "ZONE_COLORS",
+    "FrontierActionSpace",
+    "FrontierCurriculumProgress",
+    "FrontierTerritoryConfig",
+    "GhostMercFrontierEnv",
 ]

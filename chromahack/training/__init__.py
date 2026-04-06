@@ -1,1 +1,1 @@
-"""Training entrypoints for ChromaHack."""
+"""Canonical Frontier training entrypoints and archived compatibility modules."""

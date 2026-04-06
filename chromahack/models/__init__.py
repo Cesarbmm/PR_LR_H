@@ -1,21 +1,11 @@
-from .reward_cnn import (
-    PROXY_TRANSFORM,
-    ProxyRewardFunction,
-    ResNetProxy,
-    TinyCNN,
-    build_proxy_model,
-    infer_proxy_mode,
-    load_proxy_reward,
-    save_proxy_checkpoint,
-)
+from .contractor_pes_v2 import ContractorPESv2, FrontierRewardBreakdown
+from .pes_reward import PESRewardBreakdown, PESRewardSystem
+from .reward_cnn import DEPRECATION_MESSAGE
 
 __all__ = [
-    "PROXY_TRANSFORM",
-    "ProxyRewardFunction",
-    "ResNetProxy",
-    "TinyCNN",
-    "build_proxy_model",
-    "infer_proxy_mode",
-    "load_proxy_reward",
-    "save_proxy_checkpoint",
+    "ContractorPESv2",
+    "DEPRECATION_MESSAGE",
+    "FrontierRewardBreakdown",
+    "PESRewardBreakdown",
+    "PESRewardSystem",
 ]

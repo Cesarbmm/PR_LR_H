@@ -1,7 +1,9 @@
 gymnasium>=0.29.0
 stable-baselines3>=2.3.0
 torch>=2.1.0
-torchvision>=0.16.0
 numpy>=1.24.0
-matplotlib>=3.7.0
+pygame>=2.5.0; python_version < "3.14"
+pygame-ce>=2.5.7; python_version >= "3.14"
 tensorboard>=2.14.0
+# Optional for the PyG-backed GNN extractor; the local fallback works without it.
+# torch-geometric>=2.6.0

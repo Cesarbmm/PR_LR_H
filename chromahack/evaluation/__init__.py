@@ -1,1 +1,1 @@
-"""Evaluation entrypoints for ChromaHack."""
+"""Canonical Frontier evaluation entrypoints and archived compatibility modules."""

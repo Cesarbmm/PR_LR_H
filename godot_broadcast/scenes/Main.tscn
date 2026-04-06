@@ -1,0 +1,159 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/world_canvas.gd" id="2"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.0588235, 0.0666667, 0.0862745, 1)
+
+[node name="WorldCanvas" type="Node2D" parent="."]
+position = Vector2(0, 0)
+script = ExtResource("2")
+
+[node name="TitleCard" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(720, 170)
+layout_mode = 0
+offset_left = 440.0
+offset_top = 54.0
+offset_right = 1160.0
+offset_bottom = 224.0
+self_modulate = Color(1, 1, 1, 0.96)
+
+[node name="CardMargin" type="MarginContainer" parent="TitleCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 18
+
+[node name="CardVBox" type="VBoxContainer" parent="TitleCard/CardMargin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ActLabel" type="Label" parent="TitleCard/CardMargin/CardVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "ACT"
+
+[node name="HeadlineLabel" type="Label" parent="TitleCard/CardMargin/CardVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "GHOSTMERC FRONTIER"
+
+[node name="BodyLabel" type="Label" parent="TitleCard/CardMargin/CardVBox"]
+layout_mode = 2
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 18
+text = "Broadcast playback-first viewer."
+
+[node name="LowerThird" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(420, 122)
+layout_mode = 0
+offset_left = 28.0
+offset_top = 764.0
+offset_right = 448.0
+offset_bottom = 886.0
+
+[node name="LowerMargin" type="MarginContainer" parent="LowerThird"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 14
+
+[node name="LowerVBox" type="VBoxContainer" parent="LowerThird/LowerMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WorldLabel" type="Label" parent="LowerThird/LowerMargin/LowerVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "WORLD"
+
+[node name="IncidentLabel" type="Label" parent="LowerThird/LowerMargin/LowerVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "INCIDENT"
+
+[node name="AlertLabel" type="Label" parent="LowerThird/LowerMargin/LowerVBox"]
+layout_mode = 2
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 15
+text = "ALERT"
+
+[node name="StatePanel" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(420, 172)
+layout_mode = 0
+offset_left = 1148.0
+offset_top = 32.0
+offset_right = 1568.0
+offset_bottom = 284.0
+
+[node name="StateMargin" type="MarginContainer" parent="StatePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 16
+
+[node name="StateVBox" type="VBoxContainer" parent="StatePanel/StateMargin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="StageLabel" type="Label" parent="StatePanel/StateMargin/StateVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "STAGE"
+
+[node name="RosterLabel" type="Label" parent="StatePanel/StateMargin/StateVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Roster"
+
+[node name="MetricsLabel" type="Label" parent="StatePanel/StateMargin/StateVBox"]
+layout_mode = 2
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 16
+text = "Metrics"
+
+[node name="GuidanceLabel" type="Label" parent="StatePanel/StateMargin/StateVBox"]
+layout_mode = 2
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 15
+text = "Guidance"
+
+[node name="FooterLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 1038.0
+offset_top = 860.0
+offset_right = 1578.0
+offset_bottom = 890.0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 14
+text = "Space pause | Left/Right act | R restart | Tab HUD"
+
+[node name="FadeOverlay" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.0313726, 0.0392157, 0.0509804, 0.95)

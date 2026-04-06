@@ -9,15 +9,22 @@ venv/
 
 artifacts/*
 !artifacts/.gitkeep
-
-runs/*
-!runs/.gitkeep
+runs/
+tensorboard/
+tb_logs/
 
 *.zip
-*.npy
-*.png
-*.json
-*.pkl
 *.pth
 *.pt
 *.log
+docs/*.aux
+docs/*.bbl
+docs/*.blg
+docs/*.fdb_latexmk
+docs/*.fls
+docs/*.out
+docs/*.toc
+
+godot_broadcast/.godot/
+godot_broadcast/imported/
+godot_broadcast/runtime/latest_story_package.json

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chromahack"
-version = "0.1.0"
-description = "Reward hacking experiments with a fragile visual proxy."
+version = "0.5.0"
+description = "GhostMerc Frontier Territory: a reproducible RL research testbed for reward hacking, goal misgeneralization, and preference alignment."
 requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]

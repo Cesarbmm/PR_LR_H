@@ -1,1 +1,1 @@
-"""Intervention entrypoints for ChromaHack."""
+"""Frontier intervention modules."""

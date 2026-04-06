@@ -1,7 +1,6 @@
-from chromahack.data.dataset_io import DatasetSample, DatasetStats
-from chromahack.data.generate_dataset import SyntheticDatasetGenerator, build_parser, main
+from chromahack.data.generate_dataset import build_parser, main, run
 
-__all__ = ["DatasetSample", "DatasetStats", "SyntheticDatasetGenerator", "build_parser", "main"]
+__all__ = ["build_parser", "main", "run"]
 
 if __name__ == "__main__":
     main()

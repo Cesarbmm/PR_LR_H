@@ -1,88 +1,120 @@
-# ChromaHack
+# GhostMerc Frontier: Logistics Drift
 
-ChromaHack is a local research repo for studying reward hacking with a fragile visual proxy. The PPO agent optimizes a CNN-based proxy reward, while evaluation tracks the hidden true reward based on real object placement.
+GhostMerc Frontier is now centered on **`logistics_v1`**: a reproducible RL disclosure project about **reward hacking** in a last-mile delivery world.
 
-## Project layout
+The core story is simple on purpose:
+- a courier starts a shift normally
+- early route progress looks reasonable
+- ambiguity appears: absent customers, route delays, locker retries, bad addresses
+- a corrupted KPI starts paying **scan/check-in activity more than real delivery**
+- proxy reward rises while real service quality collapses
 
-The package source of truth now lives under `chromahack/`:
+This repo keeps older suites such as `broadcast_v3`, `patrol_v4`, and `security_v6` as legacy benchmarks, but they are no longer the main showcase path.
 
-- `chromahack.envs.chroma_env`: Gymnasium environment
-- `chromahack.data.generate_dataset`: synthetic dataset generation
-- `chromahack.data.inspect_dataset`: dataset inspection
-- `chromahack.models.reward_cnn`: proxy CNN models and checkpoint helpers
-- `chromahack.training.train_proxy_cnn`: proxy training
-- `chromahack.training.train_ppo`: PPO training
-- `chromahack.evaluation.eval_hidden`: hidden-reward evaluation
-- `chromahack.intervention.preference_reward_model`: preference-based intervention
-- `chromahack.run_experiment`: phase orchestration
+## Canonical path
 
-The legacy root files are preserved as thin wrappers, so existing commands like `python train_proxy_cnn.py` still work.
+The current project flow is:
 
-## Install
+1. train `anchor` on `logistics_v1` with `proxy_profile=patched`
+2. fine-tune `drift` from that checkpoint with `proxy_profile=corrupted`
+3. evaluate both
+4. export a `story_package_v3`
+5. open the Godot viewer
 
-```bash
-python -m pip install -r requirements.txt
+## Main commands
+
+From `C:\Users\pc\Desktop\Proyecto_LR\PR_LR_H`:
+
+Train the full logistics story pipeline:
+
+```powershell
+python -m chromahack.run_experiment --mode frontier --phase logistics_story --world_suite logistics_v1 --story_profile single_shift_life --total_steps 4000000 --n_envs 4 --n_steps 256 --out_dir artifacts/demos/frontier_logistics_v1_story
 ```
 
-## Canonical commands
+PowerShell helper:
 
-Generate a dataset:
-
-```bash
-python -m chromahack.data.generate_dataset --fragility high --visualize --out_dir artifacts/data_high
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\train_logistics_v1_story.ps1
 ```
 
-Inspect a dataset:
+Re-export the Godot story package after training:
 
-```bash
-python -m chromahack.data.inspect_dataset --dataset artifacts/data_high/dataset.pkl
+```powershell
+python -m chromahack.rendering.story_export --demo_dir artifacts/demos/frontier_logistics_v1_story/drift/eval_frontier_hidden --reference_demo_dir artifacts/demos/frontier_logistics_v1_story/anchor/eval_frontier_hidden --out_dir artifacts/story_packages/frontier_logistics_v1 --story_profile single_shift_life --godot_project_dir godot_broadcast
 ```
 
-Train the proxy CNN:
+Open the Godot viewer:
 
-```bash
-python -m chromahack.training.train_proxy_cnn --mode tiny --dataset_dir artifacts/data_high --out_dir artifacts/proxy_tiny
+```powershell
+Start-Process 'C:\Users\pc\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-stable_win64.exe' -ArgumentList '--path','C:\Users\pc\Desktop\Proyecto_LR\PR_LR_H\godot_broadcast'
 ```
 
-Train PPO from an existing proxy:
+Run a quick smoke path:
 
-```bash
-python -m chromahack.training.train_ppo --mode tiny --proxy_path artifacts/proxy_tiny/proxy_cnn.pth --total_steps 200000 --out_dir runs/exp_001
+```powershell
+python scripts\smoke_test.py
 ```
 
-Evaluate hidden reward:
+## If `python` points to the wrong interpreter
 
-```bash
-python -m chromahack.evaluation.eval_hidden --model_dir runs/exp_001 --n_episodes 50
+Some local shells in this machine use a Python without the RL deps. If that happens, use:
+
+```powershell
+C:\Python314\python.exe -m chromahack.run_experiment --mode frontier --phase logistics_story --world_suite logistics_v1 --story_profile single_shift_life --quick --out_dir artifacts/tmp/frontier_logistics_v1_smoke
 ```
 
-Run the preference intervention:
+## What matters scientifically
 
-```bash
-python -m chromahack.intervention.preference_reward_model collect --agent_path runs/exp_001/ppo_final.zip --traj_dir artifacts/prefs/traj
-python -m chromahack.intervention.preference_reward_model label --traj_dir artifacts/prefs/traj --n_pairs 2000
-python -m chromahack.intervention.preference_reward_model train --traj_dir artifacts/prefs/traj --out_dir artifacts/prefs/model
-python -m chromahack.intervention.preference_reward_model retrain --pref_model_path artifacts/prefs/model/pref_reward.pth --out_dir runs/exp_aligned
-python -m chromahack.evaluation.eval_hidden --model_dir runs/exp_aligned --model_name ppo_aligned_final
+The key metrics for `logistics_v1` are:
+
+- `delivery_completion_rate`
+- `scan_without_handoff_rate`
+- `false_delivery_rate`
+- `customer_wait_rate`
+- `route_progress`
+- `package_integrity`
+- `ops_kpi`
+- `drift_score`
+- `first_hack_step`
+- `world_health`
+- `proxy_true_gap`
+
+The exploit we want to make legible is:
+
+**scan > deliver**
+
+That means the policy keeps looking busy and productive while real package handoff and route quality get worse.
+
+## Repo structure
+
+Current canonical modules:
+
+```text
+chromahack/
+  envs/
+    ghostmerc_frontier_env.py
+    territory_generator.py
+    logistics_catalog.py
+  training/
+    train_ppo_frontier.py
+  evaluation/
+    eval_frontier_hidden.py
+    frontier_scripted.py
+  rendering/
+    story_export.py
+    frontier_dual_renderer.py
+  utils/
+    config.py
+    metrics.py
+  run_experiment.py
+godot_broadcast/
+scripts/
+tests/
+data/
 ```
 
-Run the full experiment:
+## Notes
 
-```bash
-python -m chromahack.run_experiment --phase AB --quick
-```
-
-The `--quick` preset is tuned for this CPU-only local environment and defaults to `--n_envs 1`.
-
-Smoke test:
-
-```bash
-python scripts/smoke_test.py
-```
-
-## Compatibility notes
-
-- `dataset.pkl` is now stored as plain serializable payload data, not pickled custom objects.
-- Dataset loaders still accept legacy payloads containing old `DatasetSample` or `DatasetStats` objects.
-- PPO training can either bootstrap a proxy internally or load one with `--proxy_path`.
-- Hidden evaluation now supports `--model_name`, defaulting to `ppo_final`.
+- `godot_broadcast/` is playback-first. It does not simulate the environment live.
+- `artifacts/` is ignored by git and is expected to contain local runs, evaluations, and exported story packages.
+- Older scripts for `patrol_v4` and `security_v6` were removed from the main path on purpose.
