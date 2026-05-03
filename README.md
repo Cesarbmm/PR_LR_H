@@ -1,77 +1,87 @@
-# GhostMerc Frontier: Logistics Drift
+# GhostMerc Frontier vNext
 
-GhostMerc Frontier is now centered on **`logistics_v1`**: a reproducible RL disclosure project about **reward hacking** in a last-mile delivery world.
+GhostMerc Frontier is centered on **`logistics_v1`**: a reproducible RL benchmark and public-facing disclosure demo about **reward hacking** in a last-mile delivery world.
 
-The core story is simple on purpose:
+The canonical story is:
 - a courier starts a shift normally
-- early route progress looks reasonable
-- ambiguity appears: absent customers, route delays, locker retries, bad addresses
-- a corrupted KPI starts paying **scan/check-in activity more than real delivery**
-- proxy reward rises while real service quality collapses
+- early route work looks competent and useful
+- ambiguity appears: absent customers, retries, address mismatches, delays
+- a corrupted KPI starts paying **scan/check-in activity more than real handoff**
+- proxy reward rises while real delivery quality collapses
 
-This repo keeps older suites such as `broadcast_v3`, `patrol_v4`, and `security_v6` as legacy benchmarks, but they are no longer the main showcase path.
+## Canonical Workflow
 
-## Canonical path
-
-The current project flow is:
-
-1. train `anchor` on `logistics_v1` with `proxy_profile=patched`
-2. fine-tune `drift` from that checkpoint with `proxy_profile=corrupted`
-3. evaluate both
-4. export a `story_package_v3`
-5. open the Godot viewer
-
-## Main commands
-
-From `C:\Users\pc\Desktop\Proyecto_LR\PR_LR_H`:
-
-Train the full logistics story pipeline:
+1. Bootstrap the repo on Windows:
 
 ```powershell
-python -m chromahack.run_experiment --mode frontier --phase logistics_story --world_suite logistics_v1 --story_profile single_shift_life --total_steps 4000000 --n_envs 4 --n_steps 256 --out_dir artifacts/demos/frontier_logistics_v1_story
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1
 ```
 
-PowerShell helper:
+If you want a CUDA-enabled PyTorch build on a compatible NVIDIA machine, use the official PyTorch channel explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -TorchChannel cu130
+```
+
+2. Run the canonical logistics benchmark + story pipeline:
+
+```powershell
+.\scripts\invoke_project_python.ps1 -m chromahack.run_experiment --mode frontier --phase logistics_story --execution_profile release_demo --story_profile single_shift_life --out_dir artifacts/demos/frontier_logistics_v1_story
+```
+
+3. Or use the convenience script:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\train_logistics_v1_story.ps1
 ```
 
-Re-export the Godot story package after training:
+4. Re-export the Godot package if you want to refresh the runtime pointer manually:
 
 ```powershell
-python -m chromahack.rendering.story_export --demo_dir artifacts/demos/frontier_logistics_v1_story/drift/eval_frontier_hidden --reference_demo_dir artifacts/demos/frontier_logistics_v1_story/anchor/eval_frontier_hidden --out_dir artifacts/story_packages/frontier_logistics_v1 --story_profile single_shift_life --godot_project_dir godot_broadcast
+.\scripts\invoke_project_python.ps1 -m chromahack.rendering.story_export --demo_dir artifacts/demos/frontier_logistics_v1_story/drift/eval_frontier_hidden --reference_demo_dir artifacts/demos/frontier_logistics_v1_story/anchor/eval_frontier_hidden --out_dir artifacts/story_packages/frontier_logistics_v1 --story_profile single_shift_life --godot_project_dir godot_broadcast
 ```
 
-Open the Godot viewer:
+5. Open the Godot viewer:
+- Open `godot_broadcast/project.godot` in Godot 4.6.
+- The viewer reads `godot_broadcast/runtime/latest_story_package.json`.
 
-```powershell
-Start-Process 'C:\Users\pc\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-stable_win64.exe' -ArgumentList '--path','C:\Users\pc\Desktop\Proyecto_LR\PR_LR_H\godot_broadcast'
+## Canonical CLIs
+
+- `python -m chromahack.run_experiment --phase logistics_story`
+- `python -m chromahack.evaluation.eval_frontier_hidden`
+- `python -m chromahack.rendering.story_export`
+
+The repo ships PowerShell wrappers so the supported Windows path is:
+- `.\scripts\invoke_project_python.ps1 -m ...`
+
+If you are using `cmd.exe` or a terminal widget with a stale PATH, use the CMD wrappers instead:
+
+```bat
+scripts\invoke_project_python.cmd -c "import torch; print(torch.cuda.is_available())"
+scripts\open_godot_viewer.cmd -Editor
+scripts\open_godot_viewer.cmd -Play
+scripts\open_godot_viewer.cmd -Play -PresentationMode public -TourMode beats
 ```
 
-Run a quick smoke path:
+The Godot launcher resolves WinGet installs such as `Godot_v4.6.2-stable_win64.exe`, so it does not require a `godot.exe` alias.
 
-```powershell
-python scripts\smoke_test.py
-```
+## Execution Profiles
 
-## If `python` points to the wrong interpreter
+The Frontier pipeline now has three named runtime profiles:
 
-Some local shells in this machine use a Python without the RL deps. If that happens, use:
+- `quick`: smoke path, `flat + MLP`, deterministic local validation
+- `benchmark`: anchor-vs-drift benchmark, `dict + GNN`, reproducible comparison runs
+- `release_demo`: long showcase training path for public logistics story packages
 
-```powershell
-C:\Python314\python.exe -m chromahack.run_experiment --mode frontier --phase logistics_story --world_suite logistics_v1 --story_profile single_shift_life --quick --out_dir artifacts/tmp/frontier_logistics_v1_smoke
-```
+## What Matters Scientifically
 
-## What matters scientifically
-
-The key metrics for `logistics_v1` are:
+The key `logistics_v1` metrics are:
 
 - `delivery_completion_rate`
 - `scan_without_handoff_rate`
 - `false_delivery_rate`
 - `customer_wait_rate`
-- `route_progress`
+- `route_completion_rate`
 - `package_integrity`
 - `ops_kpi`
 - `drift_score`
@@ -85,28 +95,16 @@ The exploit we want to make legible is:
 
 That means the policy keeps looking busy and productive while real package handoff and route quality get worse.
 
-## Repo structure
-
-Current canonical modules:
+## Repo Structure
 
 ```text
 chromahack/
   envs/
-    ghostmerc_frontier_env.py
-    territory_generator.py
-    logistics_catalog.py
-  training/
-    train_ppo_frontier.py
   evaluation/
-    eval_frontier_hidden.py
-    frontier_scripted.py
+  intervention/
   rendering/
-    story_export.py
-    frontier_dual_renderer.py
+  training/
   utils/
-    config.py
-    metrics.py
-  run_experiment.py
 godot_broadcast/
 scripts/
 tests/
@@ -115,6 +113,6 @@ data/
 
 ## Notes
 
-- `godot_broadcast/` is playback-first. It does not simulate the environment live.
-- `artifacts/` is ignored by git and is expected to contain local runs, evaluations, and exported story packages.
-- Older scripts for `patrol_v4` and `security_v6` were removed from the main path on purpose.
+- `godot_broadcast/` is still playback-first today, but `story_package_v4` now carries richer runtime data and a C# migration path.
+- `artifacts/` is intentionally local-only and should contain your runs, evaluations, and story exports.
+- `Desktop/Proyecto_LR/` is no longer part of the canonical repo layout.

@@ -17,6 +17,12 @@ from chromahack.smoke_test import run_smoke_test
 from chromahack.training.train_ppo_frontier import build_parser as build_frontier_train_parser
 from chromahack.training.train_ppo_frontier import run as run_frontier_train
 from chromahack.utils.paths import resolve_input_path, resolve_project_path
+from chromahack.utils.runtime_contracts import (
+    benchmark_comparison,
+    canonical_reward_mode,
+    resolve_execution_profile,
+    reward_mode_cli_choices,
+)
 
 DEFAULT_FRONTIER_OUT_DIR = "artifacts/frontier"
 MASTER_DEMO_OUT_DIR = "artifacts/demos/frontier_master_demo_long"
@@ -46,17 +52,35 @@ def _namespace_from_parser(parser: argparse.ArgumentParser, **overrides: Any) ->
 
 
 def _resolve_frontier_run_profile(args) -> dict[str, Any]:
+    effective_execution_profile = str(getattr(args, "execution_profile", "custom")).strip().lower()
+    if effective_execution_profile == "custom" and args.quick:
+        effective_execution_profile = "quick"
     base_dir = args.out_dir
     train_steps = 2_048 if args.quick else args.total_steps
     eval_episodes = 3 if args.quick else args.n_episodes
     n_envs = 1 if args.quick else args.n_envs
     n_steps = 128 if args.quick else args.n_steps
+    batch_size = args.batch_size if hasattr(args, "batch_size") else 256
     max_steps = 360 if args.quick else args.max_steps
     district_id = args.district_id
     pretrain_teacher = args.pretrain_teacher
     pretrain_episodes = args.pretrain_episodes
     pretrain_epochs = args.pretrain_epochs
     pretrain_district_id = args.pretrain_district_id
+    policy_backend = args.policy_backend
+    observation_mode = args.observation_mode
+    vec_env = getattr(args, "vec_env", "dummy")
+
+    if effective_execution_profile != "custom":
+        execution_profile = resolve_execution_profile(effective_execution_profile)
+        train_steps = execution_profile.total_steps
+        eval_episodes = execution_profile.eval_episodes
+        n_envs = execution_profile.n_envs
+        n_steps = execution_profile.n_steps
+        batch_size = execution_profile.batch_size
+        policy_backend = execution_profile.policy_backend
+        observation_mode = execution_profile.observation_mode
+        vec_env = execution_profile.vec_env
 
     if args.master_demo:
         if base_dir == DEFAULT_FRONTIER_OUT_DIR:
@@ -87,6 +111,7 @@ def _resolve_frontier_run_profile(args) -> dict[str, Any]:
         "eval_episodes": eval_episodes,
         "n_envs": n_envs,
         "n_steps": n_steps,
+        "batch_size": batch_size,
         "max_steps": max_steps,
         "district_id": district_id,
         "pretrain_teacher": pretrain_teacher,
@@ -94,11 +119,16 @@ def _resolve_frontier_run_profile(args) -> dict[str, Any]:
         "pretrain_epochs": pretrain_epochs,
         "pretrain_batch_size": args.pretrain_batch_size,
         "pretrain_district_id": pretrain_district_id,
+        "policy_backend": policy_backend,
+        "observation_mode": observation_mode,
+        "vec_env": vec_env,
+        "execution_profile": effective_execution_profile,
     }
 
 
 def run_frontier_baseline(args) -> dict[str, Any]:
     profile = _resolve_frontier_run_profile(args)
+    reward_mode = canonical_reward_mode(args.reward_mode)
     base_dir = profile["base_dir"]
     model_dir = os.path.join(base_dir, "model")
     eval_dir = os.path.join(base_dir, "eval_frontier_hidden")
@@ -109,6 +139,7 @@ def run_frontier_baseline(args) -> dict[str, Any]:
         total_steps=profile["train_steps"],
         n_envs=profile["n_envs"],
         n_steps=profile["n_steps"],
+        batch_size=profile["batch_size"],
         seed=args.seed,
         max_steps=profile["max_steps"],
         no_tensorboard=args.no_tensorboard,
@@ -120,11 +151,12 @@ def run_frontier_baseline(args) -> dict[str, Any]:
         pretrain_batch_size=profile["pretrain_batch_size"],
         pretrain_district_id=profile["pretrain_district_id"],
         master_demo=args.master_demo,
-        policy_backend=args.policy_backend,
-        reward_mode=args.reward_mode,
+        execution_profile=profile["execution_profile"],
+        policy_backend=profile["policy_backend"],
+        reward_mode=reward_mode,
         reward_model_path=args.reward_model_path,
         reward_clip_length=args.reward_clip_length,
-        observation_mode=args.observation_mode,
+        observation_mode=profile["observation_mode"],
         train_distribution=args.train_distribution,
         world_suite=args.world_suite,
         train_world_split=args.train_world_split,
@@ -133,6 +165,7 @@ def run_frontier_baseline(args) -> dict[str, Any]:
         district_ids=args.district_ids,
         disable_pyg=args.disable_pyg,
         init_model_path=args.init_model_path,
+        vec_env=profile["vec_env"],
     )
     run_frontier_train(train_args)
 
@@ -155,7 +188,7 @@ def run_frontier_baseline(args) -> dict[str, Any]:
         world_split=args.world_split,
         eval_world_splits=args.eval_world_splits,
         robustness_suite=False,
-        reward_mode=args.reward_mode if args.reward_mode != "proxy" else None,
+        reward_mode=reward_mode if reward_mode != "proxy" else None,
         reward_model_path=args.reward_model_path,
         reward_clip_length=args.reward_clip_length,
         proxy_profile=args.proxy_profile,
@@ -212,6 +245,7 @@ def run_frontier_baseline(args) -> dict[str, Any]:
 
 def run_frontier_robustness(args) -> dict[str, Any]:
     profile = _resolve_frontier_run_profile(args)
+    reward_mode = canonical_reward_mode(args.reward_mode)
     base_dir = profile["base_dir"]
     model_dir = os.path.join(base_dir, "model")
     robustness_dir = os.path.join(base_dir, "robustness_eval")
@@ -222,6 +256,7 @@ def run_frontier_robustness(args) -> dict[str, Any]:
         total_steps=profile["train_steps"],
         n_envs=profile["n_envs"],
         n_steps=profile["n_steps"],
+        batch_size=profile["batch_size"],
         seed=args.seed,
         max_steps=profile["max_steps"],
         no_tensorboard=args.no_tensorboard,
@@ -233,11 +268,12 @@ def run_frontier_robustness(args) -> dict[str, Any]:
         pretrain_batch_size=profile["pretrain_batch_size"],
         pretrain_district_id=profile["pretrain_district_id"],
         master_demo=args.master_demo,
-        policy_backend=args.policy_backend,
-        reward_mode=args.reward_mode,
+        execution_profile=profile["execution_profile"],
+        policy_backend=profile["policy_backend"],
+        reward_mode=reward_mode,
         reward_model_path=args.reward_model_path,
         reward_clip_length=args.reward_clip_length,
-        observation_mode=args.observation_mode,
+        observation_mode=profile["observation_mode"],
         train_distribution=args.train_distribution,
         world_suite=args.world_suite,
         train_world_split=args.train_world_split,
@@ -245,6 +281,7 @@ def run_frontier_robustness(args) -> dict[str, Any]:
         district_ids=args.district_ids,
         disable_pyg=args.disable_pyg,
         init_model_path=args.init_model_path,
+        vec_env=profile["vec_env"],
     )
     run_frontier_train(train_args)
 
@@ -267,7 +304,7 @@ def run_frontier_robustness(args) -> dict[str, Any]:
         world_split=args.world_split,
         eval_world_splits=args.eval_world_splits,
         robustness_suite=True,
-        reward_mode=args.reward_mode if args.reward_mode != "proxy" else None,
+        reward_mode=reward_mode if reward_mode != "proxy" else None,
         reward_model_path=args.reward_model_path,
         reward_clip_length=args.reward_clip_length,
         proxy_profile=args.proxy_profile,
@@ -329,6 +366,9 @@ def run_frontier_security_story(args) -> dict[str, Any]:
     drift_args.init_model_path = anchor_model
     drift_args.out_dir = os.path.join(base_root, "drift")
     drift_summary = run_frontier_baseline(drift_args)
+    benchmark_summary = benchmark_comparison(anchor_summary=anchor_summary, drift_summary=drift_summary)
+    with open(os.path.join(base_root, "benchmark_summary.json"), "w", encoding="utf-8") as handle:
+        json.dump(benchmark_summary, handle, indent=2)
     return {
         "world_suite": "security_v6",
         "story_profile": getattr(args, "story_profile", "single_life"),
@@ -336,6 +376,7 @@ def run_frontier_security_story(args) -> dict[str, Any]:
         "anchor_summary": anchor_summary,
         "drift_summary": drift_summary,
         "demo_root": base_root,
+        "benchmark_summary": benchmark_summary,
     }
 
 
@@ -369,6 +410,9 @@ def run_frontier_logistics_story(args) -> dict[str, Any]:
     drift_args.init_model_path = anchor_model
     drift_args.out_dir = os.path.join(base_root, "drift")
     drift_summary = run_frontier_baseline(drift_args)
+    benchmark_summary = benchmark_comparison(anchor_summary=anchor_summary, drift_summary=drift_summary)
+    with open(os.path.join(base_root, "benchmark_summary.json"), "w", encoding="utf-8") as handle:
+        json.dump(benchmark_summary, handle, indent=2)
     story_out_dir = os.path.join(base_root, "story_package")
     story_export = export_story_package(
         demo_dir=os.path.join(base_root, "drift", "eval_frontier_hidden"),
@@ -384,6 +428,7 @@ def run_frontier_logistics_story(args) -> dict[str, Any]:
         "anchor_summary": anchor_summary,
         "drift_summary": drift_summary,
         "demo_root": base_root,
+        "benchmark_summary": benchmark_summary,
         "story_package": story_export.to_dict(),
     }
 
@@ -428,8 +473,8 @@ def run_frontier_rlhf(args) -> dict[str, Any]:
     )
 
     pref_args = argparse.Namespace(**vars(args))
-    pref_args.out_dir = os.path.join(base_root, "pref_model_run")
-    pref_args.reward_mode = "pref_model"
+    pref_args.out_dir = os.path.join(base_root, "oracle_preference_baseline_run")
+    pref_args.reward_mode = canonical_reward_mode("oracle_preference_baseline")
     pref_args.reward_model_path = train_summary["model_path"]
     if args.quick:
         pref_args.total_steps = min(int(args.total_steps), 1_024)
@@ -438,6 +483,7 @@ def run_frontier_rlhf(args) -> dict[str, Any]:
         "baseline_summary": baseline_summary,
         "preference_export": export_summary,
         "preference_training": train_summary,
+        "oracle_preference_baseline_summary": pref_summary,
         "pref_model_summary": pref_summary,
     }
 
@@ -473,10 +519,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--master_demo", action="store_true")
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--smoke_test", action="store_true")
+    parser.add_argument("--execution_profile", choices=["custom", "quick", "benchmark", "release_demo"], default="custom")
     parser.add_argument("--total_steps", type=int, default=200_000)
     parser.add_argument("--n_episodes", type=int, default=50)
     parser.add_argument("--n_envs", type=int, default=4)
     parser.add_argument("--n_steps", type=int, default=256)
+    parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--max_steps", type=int, default=1_200)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--district_mode", choices=["all", "curriculum"], default="all")
@@ -496,7 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--world_split", choices=FRONTIER_WORLD_SPLITS, default="train")
     parser.add_argument("--train_world_split", choices=FRONTIER_WORLD_SPLITS, default="train")
     parser.add_argument("--eval_world_splits", nargs="*", choices=FRONTIER_WORLD_SPLITS, default=None)
-    parser.add_argument("--reward_mode", choices=["proxy", "pref_model"], default="proxy")
+    parser.add_argument("--reward_mode", choices=reward_mode_cli_choices(), default="proxy")
     parser.add_argument("--proxy_profile", choices=["corrupted", "patched"], default="corrupted")
     parser.add_argument("--training_phase", choices=["anchor", "drift"], default="anchor")
     parser.add_argument("--story_profile", choices=["single_life", "single_shift_life"], default="single_shift_life")
@@ -504,6 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reward_clip_length", type=int, default=48)
     parser.add_argument("--observation_mode", choices=["flat", "dict"], default="flat")
     parser.add_argument("--disable_pyg", action="store_true")
+    parser.add_argument("--vec_env", choices=["dummy", "subproc"], default="dummy")
     parser.add_argument("--preference_source_dir", type=str, default=None)
     parser.add_argument("--preference_clip_length", type=int, default=48)
     parser.add_argument("--preference_stride", type=int, default=24)

@@ -153,7 +153,8 @@ def test_preference_reward_wrapper_rewrites_proxy_reward(tmp_path) -> None:
     wrapped.reset(seed=111, options={"district_id": 5})
     _, reward, _, _, info = wrapped.step(np.asarray([4, 0, 1, 0, 1], dtype=np.int64))
 
-    assert info["reward_mode"] == "pref_model"
+    assert info["reward_mode"] == "oracle_preference_baseline"
+    assert info["reward_mode_legacy"] == "pref_model"
     assert "proxy_reward_original" in info
     assert "reward_model_reward" in info
     assert reward == info["proxy_reward"] == info["reward_model_reward"]

@@ -27,6 +27,12 @@ from chromahack.rendering.replay_annotator import build_transition_clip_metadata
 from chromahack.utils.config import FrontierTerritoryConfig, add_frontier_env_args, frontier_config_from_args
 from chromahack.utils.metrics import aggregate_frontier_metrics, summarize_frontier_episode, write_episode_csv
 from chromahack.utils.paths import resolve_input_path, resolve_project_path
+from chromahack.utils.runtime_contracts import (
+    build_stage_manifest,
+    canonical_reward_mode,
+    reward_mode_cli_choices,
+    write_stage_manifest,
+)
 from chromahack.utils.trajectory_io import (
     EpisodeTrajectory,
     TrajectoryStep,
@@ -44,11 +50,68 @@ def _resolve_model_path(model_dir: str, model_name: str) -> str:
 def _load_training_manifest(model_dir: str | None) -> dict[str, Any]:
     if not model_dir:
         return {}
-    manifest_path = os.path.join(model_dir, "training_manifest.json")
-    if not os.path.exists(manifest_path):
-        return {}
-    with open(manifest_path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+    for filename in ("manifest.json", "training_manifest.json"):
+        manifest_path = os.path.join(model_dir, filename)
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+    return {}
+
+
+def _manifest_value(manifest: dict[str, Any], key: str, default: Any = None) -> Any:
+    if key in manifest:
+        return manifest.get(key, default)
+    run_payload = manifest.get("run")
+    if isinstance(run_payload, dict) and key in run_payload:
+        return run_payload.get(key, default)
+    extra_payload = manifest.get("extra")
+    if isinstance(extra_payload, dict) and key in extra_payload:
+        return extra_payload.get(key, default)
+    return default
+
+
+def _manifest_execution_profile_name(manifest: dict[str, Any]) -> str:
+    profile_payload = manifest.get("execution_profile")
+    if isinstance(profile_payload, dict):
+        profile_name = profile_payload.get("name")
+        if profile_name:
+            return str(profile_name)
+    return "custom"
+
+
+def _write_evaluation_manifest(
+    *,
+    args,
+    out_dir: str,
+    config: FrontierTerritoryConfig,
+    reward_mode: str,
+    reward_model_path: str | None,
+    model_path: str | None,
+    distribution_split: str | None,
+    world_split: str | None,
+    generated_outputs: dict[str, Any],
+    extra: dict[str, Any],
+) -> None:
+    training_manifest = getattr(args, "training_manifest", {})
+    manifest = build_stage_manifest(
+        stage="evaluation",
+        output_dir=out_dir,
+        execution_profile=_manifest_execution_profile_name(training_manifest),
+        seed=args.seed,
+        world_suite=args.world_suite,
+        world_split=world_split,
+        distribution_split=distribution_split,
+        proxy_profile=config.proxy_profile,
+        training_phase=config.training_phase,
+        observation_mode=config.observation_mode,
+        policy_backend=_manifest_value(training_manifest, "policy_backend"),
+        reward_mode=reward_mode,
+        reward_model_path=reward_model_path,
+        base_checkpoint=model_path,
+        generated_outputs=generated_outputs,
+        extra=extra,
+    )
+    write_stage_manifest(out_dir, manifest, compatibility_filename="evaluation_manifest.json")
 
 
 def _load_config(model_dir: str | None, args) -> FrontierTerritoryConfig:
@@ -114,15 +177,15 @@ def _select_action(env: GhostMercFrontierEnv, args, agent, observation: Any) -> 
 
 
 def _resolve_reward_mode(args, manifest: dict[str, Any]) -> tuple[str, str | None]:
-    reward_mode = args.reward_mode or str(manifest.get("reward_mode", "proxy"))
-    reward_model_path = args.reward_model_path or manifest.get("reward_model_path")
+    reward_mode = canonical_reward_mode(args.reward_mode or str(_manifest_value(manifest, "reward_mode", "proxy")))
+    reward_model_path = args.reward_model_path or _manifest_value(manifest, "reward_model_path")
     if reward_model_path:
         reward_model_path = str(resolve_input_path(reward_model_path))
     return reward_mode, reward_model_path
 
 
 def _resolve_distribution_splits(args, manifest: dict[str, Any]) -> list[str]:
-    train_distribution = normalize_frontier_distribution_split(manifest.get("train_distribution", "train"))
+    train_distribution = normalize_frontier_distribution_split(_manifest_value(manifest, "distribution_split", "train"))
     if args.robustness_suite:
         requested = [train_distribution, "in_distribution", "shifted", "stress"]
     elif args.eval_splits:
@@ -137,7 +200,7 @@ def _resolve_distribution_splits(args, manifest: dict[str, Any]) -> list[str]:
 
 
 def _resolve_world_splits(args, manifest: dict[str, Any]) -> list[str]:
-    train_world_split = normalize_frontier_world_split(manifest.get("train_world_split", "train"))
+    train_world_split = normalize_frontier_world_split(_manifest_value(manifest, "world_split", "train"))
     if args.eval_world_splits:
         requested = [normalize_frontier_world_split(split) for split in args.eval_world_splits]
     elif args.world_split is not None:
@@ -334,9 +397,9 @@ def _run_single_evaluation(
         world_suite=args.world_suite,
         world_split=args.world_split,
     )
-    if reward_mode == "pref_model":
+    if reward_mode == "oracle_preference_baseline":
         if not reward_model_path:
-            raise ValueError("Reward-mode pref_model requires a reward model checkpoint")
+            raise ValueError("Reward-mode oracle_preference_baseline requires a reward model checkpoint")
         env = FrontierPreferenceRewardWrapper(env, reward_model_path, clip_length=args.reward_clip_length, device=args.device)
     episode_summaries: list[dict[str, Any]] = []
     transition_clips: list[dict[str, Any]] = []
@@ -552,6 +615,28 @@ def _run_single_evaluation(
         json.dump(episode_summaries, handle, indent=2)
     with open(os.path.join(out_dir, "transition_clips.json"), "w", encoding="utf-8") as handle:
         json.dump(transition_clips, handle, indent=2)
+    _write_evaluation_manifest(
+        args=args,
+        out_dir=out_dir,
+        config=config,
+        reward_mode=reward_mode,
+        reward_model_path=reward_model_path,
+        model_path=model_path,
+        distribution_split=distribution_split,
+        world_split=args.world_split,
+        generated_outputs={
+            "summary": os.path.join(out_dir, "summary.json"),
+            "episodes_csv": os.path.join(out_dir, "episodes.csv"),
+            "episodes_json": os.path.join(out_dir, "episodes.json"),
+            "transition_clips": os.path.join(out_dir, "transition_clips.json"),
+            "trajectory_dir": trajectory_dir if args.save_trajectories else None,
+        },
+        extra={
+            "policy_source": args.policy_source,
+            "model_name": args.model_name,
+            "district_mode": args.district_mode,
+        },
+    )
 
     if not quiet:
         print(f"[eval-frontier] summary ({distribution_split})")
@@ -562,13 +647,14 @@ def _run_single_evaluation(
 def run(args) -> dict[str, Any]:
     model_dir = str(resolve_input_path(args.model_dir)) if args.model_dir else None
     training_manifest = _load_training_manifest(model_dir)
+    args.training_manifest = training_manifest
     config = _load_config(model_dir, args)
     reward_mode, reward_model_path = _resolve_reward_mode(args, training_manifest)
     args.world_suite = normalize_frontier_world_suite(
-        args.world_suite or training_manifest.get("world_suite", "frontier_v2")
+        args.world_suite or _manifest_value(training_manifest, "world_suite", "frontier_v2")
     )
     args.world_split = normalize_frontier_world_split(
-        args.world_split or training_manifest.get("train_world_split", "train")
+        args.world_split or _manifest_value(training_manifest, "world_split", "train")
     )
     distribution_splits = _resolve_distribution_splits(args, training_manifest)
     world_splits = _resolve_world_splits(args, training_manifest)
@@ -639,6 +725,27 @@ def run(args) -> dict[str, Any]:
         with open(os.path.join(out_dir, "broadcast_summary.json"), "w", encoding="utf-8") as handle:
             json.dump(summary, handle, indent=2)
         _write_world_split_comparison_csv(os.path.join(out_dir, "broadcast_comparison.csv"), split_summaries)
+        _write_evaluation_manifest(
+            args=args,
+            out_dir=out_dir,
+            config=config,
+            reward_mode=reward_mode,
+            reward_model_path=reward_model_path,
+            model_path=model_path,
+            distribution_split=distribution_split,
+            world_split=None,
+            generated_outputs={
+                "broadcast_summary": os.path.join(out_dir, "broadcast_summary.json"),
+                "broadcast_comparison": os.path.join(out_dir, "broadcast_comparison.csv"),
+                "trajectory_root": trajectory_root if args.save_trajectories else None,
+            },
+            extra={
+                "policy_source": args.policy_source,
+                "model_name": args.model_name,
+                "district_mode": args.district_mode,
+                "world_splits": world_splits,
+            },
+        )
         print("[eval-frontier] broadcast summary")
         print(json.dumps(summary, indent=2))
         return summary
@@ -663,11 +770,32 @@ def run(args) -> dict[str, Any]:
             trajectory_dir=split_trajectory_dir,
             quiet=True,
         )
-    train_distribution = normalize_frontier_distribution_split(training_manifest.get("train_distribution", "train"))
+    train_distribution = normalize_frontier_distribution_split(_manifest_value(training_manifest, "distribution_split", "train"))
     summary = _robustness_summary(split_summaries, train_distribution=train_distribution)
     with open(os.path.join(out_dir, "robustness_summary.json"), "w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
     _write_split_comparison_csv(os.path.join(out_dir, "robustness_comparison.csv"), split_summaries)
+    _write_evaluation_manifest(
+        args=args,
+        out_dir=out_dir,
+        config=config,
+        reward_mode=reward_mode,
+        reward_model_path=reward_model_path,
+        model_path=model_path,
+        distribution_split=None,
+        world_split=args.world_split,
+        generated_outputs={
+            "robustness_summary": os.path.join(out_dir, "robustness_summary.json"),
+            "robustness_comparison": os.path.join(out_dir, "robustness_comparison.csv"),
+            "trajectory_root": trajectory_root if args.save_trajectories else None,
+        },
+        extra={
+            "policy_source": args.policy_source,
+            "model_name": args.model_name,
+            "district_mode": args.district_mode,
+            "distribution_splits": distribution_splits,
+        },
+    )
     print("[eval-frontier] robustness summary")
     print(json.dumps(summary, indent=2))
     return summary
@@ -680,7 +808,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model_name", type=str, default="ppo_final")
     parser.add_argument("--policy_source", choices=["ppo", "scripted"], default="ppo")
     parser.add_argument("--scripted_policy", choices=SCRIPTED_FRONTIER_POLICIES, default="containment")
-    parser.add_argument("--reward_mode", choices=["proxy", "pref_model"], default=None)
+    parser.add_argument("--reward_mode", choices=reward_mode_cli_choices(), default=None)
     parser.add_argument("--reward_model_path", type=str, default=None)
     parser.add_argument("--reward_clip_length", type=int, default=48)
     parser.add_argument("--n_episodes", type=int, default=50)

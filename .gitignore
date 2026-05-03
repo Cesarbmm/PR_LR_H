@@ -6,6 +6,9 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+chromahack.egg-info/
+Desktop/
+.vs/
 
 artifacts/*
 !artifacts/.gitkeep
@@ -28,3 +31,6 @@ docs/*.toc
 godot_broadcast/.godot/
 godot_broadcast/imported/
 godot_broadcast/runtime/latest_story_package.json
+godot_broadcast/.mono/
+godot_broadcast/*.csproj
+godot_broadcast/*.sln

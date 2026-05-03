@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="jacket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b9d9fb"/>
+      <stop offset="100%" stop-color="#6d9dd7"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="64" cy="112" rx="28" ry="10" fill="#0d1117" fill-opacity="0.24"/>
+  <circle cx="64" cy="34" r="18" fill="#efe4d4"/>
+  <path d="M41 63l23-13 23 13-6 36H47z" fill="url(#jacket)" stroke="#1c232b" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M54 64h20l6 14H48z" fill="#f7f7f7" fill-opacity="0.2"/>
+  <rect x="77" y="72" width="17" height="22" rx="2" fill="#f1ead8" stroke="#1c232b" stroke-width="2"/>
+  <path d="M44 67l-8 18M84 67l8 18" stroke="#1c232b" stroke-width="4" stroke-linecap="round"/>
+  <path d="M54 108l-4 12M74 108l4 12" stroke="#1c232b" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="58" cy="33" r="2.5" fill="#202630"/>
+  <circle cx="70" cy="33" r="2.5" fill="#202630"/>
+  <path d="M57 42c4.5 2.5 9.5 2.5 14 0" fill="none" stroke="#c98b6d" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

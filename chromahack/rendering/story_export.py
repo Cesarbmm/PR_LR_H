@@ -20,7 +20,15 @@ from chromahack.rendering.frontier_dual_renderer import (
     _select_focus_actor,
     _summary_split_metrics,
 )
+from chromahack.rendering.story_contract import (
+    STORY_PACKAGE_SCHEMA_VERSION,
+    build_act_event_tracks,
+    build_frame_beat,
+    build_frame_event_tracks,
+    presentation_modes_payload,
+)
 from chromahack.utils.paths import resolve_input_path, resolve_project_path
+from chromahack.utils.runtime_contracts import build_stage_manifest, write_stage_manifest
 from chromahack.utils.trajectory_io import load_episode_trajectory
 
 PROTECTED_FACTIONS = {"civilian", "ally", "militia"}
@@ -320,6 +328,95 @@ def _route_points(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return points
 
 
+def _target_slot_id_from_action(action_name: str) -> int | None:
+    for token in action_name.split("|"):
+        token = token.strip()
+        if not token.startswith("target_"):
+            continue
+        try:
+            return int(token.removeprefix("target_"))
+        except ValueError:
+            return None
+    return None
+
+
+def _visual_focus_actor(snapshot: dict[str, Any], step: dict[str, Any]) -> dict[str, Any] | None:
+    target_slot_id = _target_slot_id_from_action(str(step.get("action_name", "")))
+    if target_slot_id is not None:
+        for actor in snapshot.get("actors", []):
+            if int(actor.get("slot_id", -1)) == target_slot_id and (bool(actor.get("alive", False)) or bool(actor.get("extracted", False))):
+                return actor
+    return _select_focus_actor(snapshot, step)
+
+
+def _agent_position_invalid(snapshot: dict[str, Any], position: tuple[float, float]) -> bool:
+    if len(_route_points(snapshot)) < 2:
+        return False
+    width = float(snapshot.get("map_width", 1000.0))
+    height = float(snapshot.get("map_height", 800.0))
+    x, y = position
+    if math.hypot(x, y) < 2.0:
+        return True
+    return x < -8.0 or y < -8.0 or x > width + 8.0 or y > height + 8.0
+
+
+def _timeline_progress(frame_index: int, frame_count: int) -> float:
+    if frame_count <= 1:
+        return 0.0
+    return max(0.0, min(1.0, frame_index / max(1, frame_count - 1)))
+
+
+def _route_point_at(route_points: list[dict[str, Any]], progress: float, snapshot: dict[str, Any]) -> tuple[float, float]:
+    if not route_points:
+        return float(snapshot.get("map_width", 1000.0)) * 0.5, float(snapshot.get("map_height", 800.0)) * 0.5
+    if len(route_points) == 1:
+        return float(route_points[0]["x"]), float(route_points[0]["y"])
+    scaled = max(0.0, min(1.0, progress)) * float(len(route_points) - 1)
+    from_index = max(0, min(len(route_points) - 1, int(math.floor(scaled))))
+    to_index = max(0, min(len(route_points) - 1, from_index + 1))
+    amount = scaled - float(from_index)
+    from_point = route_points[from_index]
+    to_point = route_points[to_index]
+    x = float(from_point["x"]) + (float(to_point["x"]) - float(from_point["x"])) * amount
+    y = float(from_point["y"]) + (float(to_point["y"]) - float(from_point["y"])) * amount
+    return x, y
+
+
+def _directed_agent_position(
+    snapshot: dict[str, Any],
+    step: dict[str, Any],
+    focus_actor: dict[str, Any] | None,
+    *,
+    frame_index: int,
+    frame_count: int,
+    stage_label: str = "",
+) -> tuple[float, float]:
+    agent = snapshot["agent"]
+    raw_position = float(agent["x"]), float(agent["y"])
+    if not _agent_position_invalid(snapshot, raw_position):
+        return raw_position
+
+    route_points = _route_points(snapshot)
+    world_progress = max(0.0, min(1.0, float(snapshot.get("route_completion_rate", snapshot.get("patrol_progress", 0.0)))))
+    timeline_progress = _timeline_progress(frame_index, frame_count)
+    progress = max(0.0, min(1.0, world_progress + timeline_progress * max(0.12, 1.0 - world_progress)))
+    route_x, route_y = _route_point_at(route_points, progress, snapshot)
+    if focus_actor is None:
+        return route_x, route_y
+
+    action_name = str(step.get("action_name", ""))
+    blend = 0.18
+    if "scan_package" in action_name or "mark_complete" in action_name:
+        blend = 0.42
+    elif "handoff" in action_name or "retry_delivery" in action_name:
+        blend = 0.32
+    if stage_label == "HACKING":
+        blend = max(blend, 0.36)
+    focus_x = float(focus_actor.get("x", route_x))
+    focus_y = float(focus_actor.get("y", route_y))
+    return route_x + (focus_x - route_x) * blend, route_y + (focus_y - route_y) * blend
+
+
 def _incident_payload(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for incident in snapshot.get("incident_queue", []):
@@ -347,10 +444,11 @@ def _camera_payload(
     act: str,
     frame_index: int,
     frame_count: int,
+    agent_position: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     agent = snapshot["agent"]
-    agent_x = float(agent["x"])
-    agent_y = float(agent["y"])
+    agent_x = float(agent["x"]) if agent_position is None else float(agent_position[0])
+    agent_y = float(agent["y"]) if agent_position is None else float(agent_position[1])
     progress = 0.0 if frame_count <= 1 else frame_index / max(1, frame_count - 1)
     if act == "PROLOGUE":
         return {
@@ -476,12 +574,12 @@ def _frame_payload(
     fps: int,
 ) -> dict[str, Any]:
     snapshot = step["state_snapshot"]
-    focus_actor = _select_focus_actor(snapshot, step)
+    stage = _story_stage(snapshot, act=act)
+    focus_actor = _visual_focus_actor(snapshot, step)
     focus_slot_id = None if focus_actor is None else int(focus_actor.get("slot_id", -1))
     prev_actor_index = {} if prev_step is None else _actor_index(prev_step)
     next_actor_index = {} if next_step is None else _actor_index(next_step)
     combat_bundle = _combat_bundle(prev_step, step)
-    stage = _story_stage(snapshot, act=act)
 
     actors = [
         _actor_payload(
@@ -497,11 +595,39 @@ def _frame_payload(
     ]
 
     agent = snapshot["agent"]
-    prev_agent = None if prev_step is None else prev_step["state_snapshot"]["agent"]
-    next_agent = None if next_step is None else next_step["state_snapshot"]["agent"]
-    agent_pos = (float(agent["x"]), float(agent["y"]))
-    prev_agent_pos = None if prev_agent is None else (float(prev_agent["x"]), float(prev_agent["y"]))
-    next_agent_pos = None if next_agent is None else (float(next_agent["x"]), float(next_agent["y"]))
+    agent_pos = _directed_agent_position(
+        snapshot,
+        step,
+        focus_actor,
+        frame_index=frame_index,
+        frame_count=frame_count,
+        stage_label=str(stage["label"]),
+    )
+    prev_agent_pos = None
+    if prev_step is not None:
+        prev_snapshot = prev_step["state_snapshot"]
+        prev_stage = _story_stage(prev_snapshot, act=act)
+        prev_agent_pos = _directed_agent_position(
+            prev_snapshot,
+            prev_step,
+            _visual_focus_actor(prev_snapshot, prev_step),
+            frame_index=max(0, frame_index - 1),
+            frame_count=frame_count,
+            stage_label=str(prev_stage["label"]),
+        )
+    next_agent_pos = None
+    if next_step is not None:
+        next_snapshot = next_step["state_snapshot"]
+        next_stage = _story_stage(next_snapshot, act=act)
+        next_agent_pos = _directed_agent_position(
+            next_snapshot,
+            next_step,
+            _visual_focus_actor(next_snapshot, next_step),
+            frame_index=min(frame_count - 1, frame_index + 1),
+            frame_count=frame_count,
+            stage_label=str(next_stage["label"]),
+        )
+    routes = _route_points(snapshot)
 
     incident_type = str(snapshot.get("active_incident_type") or snapshot.get("active_event_type", "frontier_patrol"))
     caption = stage["body"]
@@ -532,11 +658,11 @@ def _frame_payload(
         elif combat_bundle["alerts"]:
             caption = f"{combat_bundle['alerts'][0]}. The patrol still looks organized, but the world state is starting to slip."
 
-    return {
+    frame_payload = {
         "frame_index": frame_index,
         "step": int(step["step"]),
         "time_sec": round(frame_index / max(1, fps), 4),
-        "camera": _camera_payload(snapshot, focus_actor, act=act, frame_index=frame_index, frame_count=frame_count),
+        "camera": _camera_payload(snapshot, focus_actor, act=act, frame_index=frame_index, frame_count=frame_count, agent_position=agent_pos),
         "stage": {
             "label": str(stage["label"]),
             "tone": str(stage["tone"]),
@@ -591,7 +717,7 @@ def _frame_payload(
         "actors": actors,
         "zones": _zone_payload(snapshot),
         "incidents": _incident_payload(snapshot),
-        "routes": _route_points(snapshot),
+        "routes": routes,
         "focus": _focus_payload(step, focus_actor),
         "events": {
             "combat": combat_bundle["combat"],
@@ -604,6 +730,9 @@ def _frame_payload(
             "body": caption,
         },
     }
+    frame_payload["event_tracks"] = build_frame_event_tracks(frame_payload)
+    frame_payload["beat"] = build_frame_beat(frame_payload)
+    return frame_payload
 
 
 def _world_roster(main_summary: dict[str, Any], comparison_summary: dict[str, Any] | None) -> dict[str, Any]:
@@ -635,6 +764,29 @@ def _world_roster(main_summary: dict[str, Any], comparison_summary: dict[str, An
         "factions": ["agent", "civilian", "ally", "hostile", "militia", "smuggler", "scavenger"],
         "poi_kinds": ["safehouse", "village", "checkpoint", "ruins", "supply_road", "clinic", "watchtower", "market_square", "bridge_crossing"],
     }
+
+
+def _act_bookmarks(frames: list[dict[str, Any]], *, act_index: int, act: str) -> list[dict[str, Any]]:
+    bookmarks: list[dict[str, Any]] = []
+    last_beat_id: str | None = None
+    for frame_index, frame in enumerate(frames):
+        beat = frame.get("beat", {})
+        beat_id = str(beat.get("id", "")).strip()
+        if not beat_id or beat_id == last_beat_id:
+            continue
+        bookmarks.append(
+            {
+                "id": beat_id,
+                "label": str(beat.get("label", beat_id.replace("_", " ").upper())),
+                "title": str(beat.get("title", beat_id.replace("_", " ").title())),
+                "severity": float(beat.get("severity", 0.0)),
+                "act_index": int(act_index),
+                "act": str(act),
+                "frame_index": int(frame_index),
+            }
+        )
+        last_beat_id = beat_id
+    return bookmarks
 
 
 def _summary_proxy_profile(summary: dict[str, Any]) -> str:
@@ -1040,6 +1192,7 @@ def export_story_package(
         raise RuntimeError(f"Could not derive an editorial sequence from {resolved_demo_dir}")
 
     act_refs: list[dict[str, Any]] = []
+    sequence_bookmarks: list[dict[str, Any]] = []
     for act_index, item in enumerate(sequence_items):
         trajectory_path = resolve_input_path(str(item["episode"]["trajectory_path"]))
         trajectory = load_episode_trajectory(str(trajectory_path))
@@ -1067,6 +1220,7 @@ def export_story_package(
             )
         act_slug = _slugify(f"{act_index:02d}_{item['act']}_{item['episode'].get('world_name', item['episode'].get('district_name', 'frontier'))}")
         act_rel_path = Path("episodes") / f"{act_slug}.json"
+        bookmarks = _act_bookmarks(frames, act_index=act_index, act=str(item["act"]))
         act_payload = {
             "act": str(item["act"]),
             "headline": str(item["headline"]),
@@ -1089,9 +1243,13 @@ def export_story_package(
                 "fps": int(fps),
                 "frame_count": len(frames),
             },
+            "presentation_modes": presentation_modes_payload(),
+            "event_tracks": build_act_event_tracks(frames),
+            "bookmarks": bookmarks,
             "frames": frames,
         }
         _write_json(output_dir / act_rel_path, act_payload)
+        sequence_bookmarks.extend(bookmarks)
         act_refs.append(
             {
                 "act": str(item["act"]),
@@ -1102,6 +1260,7 @@ def export_story_package(
                 "world_name": str(episode_summary.get("world_name", episode_summary.get("district_name", "Frontier"))),
                 "frame_count": len(frames),
                 "trajectory_path": str(trajectory_path),
+                "bookmarks": bookmarks,
             }
         )
 
@@ -1120,7 +1279,9 @@ def export_story_package(
     sequence_payload = {
         "story_title": story_title,
         "story_profile": story_profile,
+        "presentation_modes": presentation_modes_payload(),
         "acts": act_refs,
+        "bookmarks": sequence_bookmarks,
         "epilogue": {
             "headline": "PATCHED VS CORRUPTED",
             "body": epilogue_body,
@@ -1133,7 +1294,10 @@ def export_story_package(
     _write_json(output_dir / "sequence.json", sequence_payload)
 
     package_payload = {
-        "schema_version": "ghostmerc_story_package_v3" if world_suite == "logistics_v1" else "ghostmerc_story_package_v2",
+        "schema_version": STORY_PACKAGE_SCHEMA_VERSION,
+        "compatibility": {
+            "legacy_schema_versions": ["ghostmerc_story_package_v2", "ghostmerc_story_package_v3"],
+        },
         "created_at": datetime.now(UTC).isoformat(),
         "story_title": sequence_payload["story_title"],
         "story_profile": story_profile,
@@ -1147,10 +1311,12 @@ def export_story_package(
         "sample_stride": int(sample_stride),
         "min_arc_score": float(min_arc_score),
         "roster": _world_roster(main_summary, comparison_summary),
+        "presentation_modes": presentation_modes_payload(),
         "runtime": {
             "interpolation": True,
             "camera_mode": "editorial",
             "hud_mode": "minimal",
+            "presentation_mode": "public",
         },
     }
     package_path = output_dir / "story_package.json"
@@ -1166,8 +1332,39 @@ def export_story_package(
                 "story_package_path": str(package_path),
                 "sequence_path": str(output_dir / "sequence.json"),
                 "created_at": package_payload["created_at"],
+                "schema_version": package_payload["schema_version"],
+                "presentation_mode": package_payload["runtime"]["presentation_mode"],
             },
         )
+
+    manifest = build_stage_manifest(
+        stage="story_export",
+        output_dir=output_dir,
+        execution_profile="custom",
+        seed=None,
+        world_suite=str(main_summary.get("world_suite", "frontier_v2")),
+        world_split=None,
+        distribution_split=None,
+        proxy_profile=_summary_proxy_profile(main_summary),
+        training_phase=None,
+        observation_mode=None,
+        policy_backend=None,
+        reward_mode="proxy",
+        reward_model_path=None,
+        base_checkpoint=None,
+        generated_outputs={
+            "story_package": str(package_path),
+            "sequence": str(output_dir / "sequence.json"),
+            "runtime_pointer": runtime_pointer_path,
+        },
+        extra={
+            "story_profile": story_profile,
+            "sample_stride": int(sample_stride),
+            "fps": int(fps),
+            "comparison_demo_dir": None if resolved_comparison is None else str(resolved_comparison),
+        },
+    )
+    write_stage_manifest(output_dir, manifest, compatibility_filename="story_manifest.json")
 
     return StoryExportResult(
         package_path=str(package_path),

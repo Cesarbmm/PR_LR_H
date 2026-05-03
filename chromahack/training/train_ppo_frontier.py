@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from chromahack.envs.territory_generator import (
     FRONTIER_DISTRIBUTION_SPLITS,
@@ -24,6 +24,13 @@ from chromahack.intervention.pref_model import FrontierPreferenceRewardWrapper
 from chromahack.utils.config import add_frontier_env_args, frontier_config_from_args
 from chromahack.utils.metrics import FrontierTrainingCallback
 from chromahack.utils.paths import resolve_input_path, resolve_project_path
+from chromahack.utils.runtime_contracts import (
+    apply_execution_profile,
+    build_stage_manifest,
+    canonical_reward_mode,
+    reward_mode_cli_choices,
+    write_stage_manifest,
+)
 
 MASTER_DEMO_DISTRICT_ID = 5
 MASTER_DEMO_MAX_STEPS = 1_600
@@ -99,9 +106,9 @@ def make_frontier_env(
             world_suite=world_suite,
             world_split=world_split,
         )
-        if reward_mode == "pref_model":
+        if canonical_reward_mode(reward_mode) == "oracle_preference_baseline":
             if not reward_model_path:
-                raise ValueError("reward_model_path is required when reward_mode='pref_model'")
+                raise ValueError("reward_model_path is required when reward_mode='oracle_preference_baseline'")
             env = FrontierPreferenceRewardWrapper(
                 env,
                 reward_model_path,
@@ -144,7 +151,10 @@ def _apply_master_demo_defaults(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def _prepare_args(args: argparse.Namespace) -> argparse.Namespace:
+    if str(getattr(args, "execution_profile", "custom")).strip().lower() != "custom":
+        args = apply_execution_profile(args, overwrite_existing=True)
     args = _apply_master_demo_defaults(args)
+    args.reward_mode = canonical_reward_mode(getattr(args, "reward_mode", "proxy"))
     if args.policy_backend == "gnn":
         args.observation_mode = "dict"
     if args.world_suite in {"patrol_v4", "security_v6", "logistics_v1"}:
@@ -152,6 +162,13 @@ def _prepare_args(args: argparse.Namespace) -> argparse.Namespace:
         args.max_zones = max(int(getattr(args, "max_zones", 5)), 7)
         args.max_incidents = max(int(getattr(args, "max_incidents", 5)), 5)
     return args
+
+
+def _build_vec_env(env_fns: list[Any], *, vec_env_mode: str) -> Any:
+    normalized = str(vec_env_mode or "dummy").strip().lower()
+    if normalized == "subproc" and len(env_fns) > 1:
+        return SubprocVecEnv(env_fns, start_method="spawn")
+    return DummyVecEnv(env_fns)
 
 
 def _collect_teacher_dataset(
@@ -177,9 +194,9 @@ def _collect_teacher_dataset(
         world_suite=world_suite,
         world_split=world_split,
     )
-    if reward_mode == "pref_model":
+    if canonical_reward_mode(reward_mode) == "oracle_preference_baseline":
         if not reward_model_path:
-            raise ValueError("reward_model_path is required when reward_mode='pref_model'")
+            raise ValueError("reward_model_path is required when reward_mode='oracle_preference_baseline'")
         env = FrontierPreferenceRewardWrapper(
             env,
             reward_model_path,
@@ -299,16 +316,16 @@ def run(args) -> str:
     config.save_json(os.path.join(out_dir, "env_config.json"))
 
     reward_model_path = None
-    if args.reward_mode == "pref_model":
+    if args.reward_mode == "oracle_preference_baseline":
         if not args.reward_model_path:
-            raise ValueError("--reward_model_path is required when --reward_mode=pref_model")
+            raise ValueError("--reward_model_path is required when --reward_mode=oracle_preference_baseline")
         reward_model_path = str(resolve_input_path(args.reward_model_path))
         if not os.path.exists(reward_model_path):
             raise FileNotFoundError(f"Missing reward model: {reward_model_path}")
 
     curriculum_progress = FrontierCurriculumProgress()
     district_ids = [int(value) for value in (args.district_ids or [])]
-    vec_env = DummyVecEnv(
+    vec_env = _build_vec_env(
         [
             make_frontier_env(
                 config,
@@ -329,7 +346,8 @@ def run(args) -> str:
                 reward_model_device=args.device,
             )
             for index in range(args.n_envs)
-        ]
+        ],
+        vec_env_mode=args.vec_env,
     )
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     total_batch = args.n_steps * args.n_envs
@@ -404,25 +422,39 @@ def run(args) -> str:
     agent.learn(total_timesteps=args.total_steps, callback=callback, progress_bar=False)
     final_path = os.path.join(out_dir, "ppo_final")
     agent.save(final_path)
-    manifest = {
-        "out_dir": out_dir,
-        "policy_backend": args.policy_backend,
-        "reward_mode": args.reward_mode,
-        "reward_model_path": reward_model_path,
-        "reward_clip_length": args.reward_clip_length,
-        "observation_mode": config.observation_mode,
-        "district_id": args.district_id,
-        "district_ids": district_ids,
-        "train_distribution": args.train_distribution,
-        "world_suite": args.world_suite,
-        "train_world_split": args.train_world_split,
-        "proxy_profile": args.proxy_profile,
-        "training_phase": args.training_phase,
-        "master_demo": bool(args.master_demo),
-        "init_model_path": init_model_path,
-    }
-    with open(os.path.join(out_dir, "training_manifest.json"), "w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
+    manifest = build_stage_manifest(
+        stage="training",
+        output_dir=out_dir,
+        execution_profile=getattr(args, "execution_profile", "custom"),
+        seed=args.seed,
+        world_suite=args.world_suite,
+        world_split=args.train_world_split,
+        distribution_split=args.train_distribution,
+        proxy_profile=args.proxy_profile,
+        training_phase=args.training_phase,
+        observation_mode=config.observation_mode,
+        policy_backend=args.policy_backend,
+        reward_mode=args.reward_mode,
+        reward_model_path=reward_model_path,
+        base_checkpoint=init_model_path,
+        generated_outputs={
+            "env_config": os.path.join(out_dir, "env_config.json"),
+            "ppo_best": os.path.join(out_dir, "ppo_best.zip"),
+            "ppo_transition": os.path.join(out_dir, "ppo_transition.zip"),
+            "ppo_final": f"{final_path}.zip",
+            "training_summary": os.path.join(out_dir, "training_summary.json"),
+            "training_episodes": os.path.join(out_dir, "training_episodes.csv"),
+            "teacher_pretrain": os.path.join(out_dir, "teacher_pretrain.json"),
+        },
+        extra={
+            "district_id": args.district_id,
+            "district_ids": district_ids,
+            "reward_clip_length": args.reward_clip_length,
+            "master_demo": bool(args.master_demo),
+            "vec_env": args.vec_env,
+        },
+    )
+    write_stage_manifest(out_dir, manifest, compatibility_filename="training_manifest.json")
     vec_env.close()
     return final_path
 
@@ -435,13 +467,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Apply long-horizon district-5 containment warm-start defaults for a curated demo policy.",
     )
+    parser.add_argument("--execution_profile", choices=["custom", "quick", "benchmark", "release_demo"], default="custom")
     parser.add_argument("--policy_backend", choices=["mlp", "gnn"], default="mlp")
-    parser.add_argument("--reward_mode", choices=["proxy", "pref_model"], default="proxy")
+    parser.add_argument("--reward_mode", choices=reward_mode_cli_choices(), default="proxy")
     parser.add_argument("--reward_model_path", type=str, default=None)
     parser.add_argument("--reward_clip_length", type=int, default=48)
     parser.add_argument("--gnn_actor_hidden_dim", type=int, default=96)
     parser.add_argument("--gnn_zone_hidden_dim", type=int, default=48)
     parser.add_argument("--disable_pyg", action="store_true")
+    parser.add_argument("--vec_env", choices=["dummy", "subproc"], default="dummy")
     parser.add_argument("--total_steps", type=int, default=250_000)
     parser.add_argument("--n_envs", type=int, default=4)
     parser.add_argument("--ppo_lr", type=float, default=2.5e-4)

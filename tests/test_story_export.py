@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from chromahack.rendering.story_export import export_story_package
+from chromahack.rendering.story_export import _frame_payload, export_story_package
+from chromahack.rendering.validate_story_package import validate_story_package
 
 
 def _step_payload(
@@ -444,22 +445,59 @@ def test_story_export_builds_godot_package_and_runtime_pointer(tmp_path: Path) -
 
     assert Path(result.package_path) == out_dir / "story_package.json"
     assert Path(result.sequence_path) == out_dir / "sequence.json"
-    assert package["schema_version"] == "ghostmerc_story_package_v2"
+    assert package["schema_version"] == "ghostmerc_story_package_v4"
     assert package["world_suite"] == "patrol_v4"
     assert package["proxy_profile"] == "corrupted"
     assert package["story_profile"] == "single_life"
+    assert package["presentation_modes"]["default_mode"] == "public"
     assert sequence["acts"][0]["act"] == "PROLOGUE"
     assert [act["act"] for act in sequence["acts"][1:]] == ["ACT I", "ACT II", "ACT III"]
     assert "epilogue" in sequence
     assert all((out_dir / act_path).exists() for act_path in result.acts)
     assert runtime_pointer["story_package_path"] == str(out_dir / "story_package.json")
+    assert runtime_pointer["schema_version"] == "ghostmerc_story_package_v4"
+    assert sequence["bookmarks"]
+    assert any(bookmark["id"] in {"routine", "drift", "broken_chain", "hacking"} for bookmark in sequence["bookmarks"])
+    validation = validate_story_package(out_dir / "story_package.json")
+    assert validation["ok"], validation["errors"]
+    assert validation["invalid_agent_frames"] == 0
 
     act_payload = json.loads((out_dir / result.acts[1]).read_text(encoding="utf-8"))
     assert act_payload["frames"]
+    assert act_payload["bookmarks"]
     assert act_payload["frames"][0]["world"]["map_width"] == 1000.0
     assert act_payload["frames"][0]["stage"]["label"] in {"PATROL", "PATROLING", "RESPONDING", "DRIFTING", "FARMING"}
+    assert "event_tracks" in act_payload
+    assert "beat" in act_payload["frames"][0]
+    assert "presentation_modes" in act_payload
+    assert "event_tracks" in act_payload["frames"][0]
     assert "incident_closure_rate" in act_payload["frames"][0]["world"]
     assert "counts" in act_payload["frames"][0]["events"]
     combat_frame = next(frame for frame in act_payload["frames"] if frame["events"]["combat"])
     assert any(event["victim_faction"] == "civilian" for event in combat_frame["events"]["combat"])
     assert any(actor["render_role"] == "hostile" for actor in combat_frame["actors"])
+
+
+def test_story_export_directs_invalid_agent_position_for_visual_runtime() -> None:
+    step = _step_payload(
+        6,
+        agent_x=0.0,
+        proxy_total=12.0,
+        true_total=-4.0,
+        gap=180.0,
+        patrol_progress=0.45,
+        route_completion_rate=0.45,
+        monitor_rate=0.08,
+        neglected=1,
+        incident_type="false_alarm",
+        actor_x=460.0,
+    )
+    step["action_name"] = "up_left|rush|target_1|mark_complete|scan_package"
+    step["state_snapshot"]["agent"]["y"] = 0.0
+
+    frame = _frame_payload(step, None, None, act="ACT III", frame_index=8, frame_count=20, fps=10)
+
+    assert frame["agent"]["x"] > 2.0
+    assert frame["agent"]["y"] > 2.0
+    assert frame["focus"]["slot_id"] == 1
+    assert frame["camera"]["center"] != [0.0, 0.0]

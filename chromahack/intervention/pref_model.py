@@ -16,6 +16,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from chromahack.utils.paths import resolve_input_path, resolve_project_path
+from chromahack.utils.runtime_contracts import canonical_reward_mode, legacy_reward_mode_label
 from chromahack.utils.trajectory_io import load_episode_trajectory
 
 STEP_FEATURE_DIM = 48
@@ -229,6 +230,7 @@ def export_preference_dataset(args) -> dict[str, Any]:
         "feature_dim": STEP_FEATURE_DIM + CLIP_CONTEXT_DIM,
         "trajectory_dir": trajectory_dir,
         "dataset_path": out_path,
+        "intervention_type": canonical_reward_mode("oracle_preference_baseline"),
     }
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
@@ -317,6 +319,8 @@ def train_preference_model(args) -> dict[str, Any]:
         "epochs": args.epochs,
         "train_accuracy": train_accuracy,
         "validation_accuracy": validation_accuracy,
+        "reward_mode": canonical_reward_mode("oracle_preference_baseline"),
+        "reward_mode_legacy": legacy_reward_mode_label("oracle_preference_baseline"),
     }
     with open(os.path.join(out_dir, "training_summary.json"), "w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
@@ -376,7 +380,8 @@ class FrontierPreferenceRewardWrapper(gym.Wrapper):
         observation, info = self.env.reset(**kwargs)
         self.scorer.reset()
         wrapped_info = dict(info)
-        wrapped_info["reward_mode"] = "pref_model"
+        wrapped_info["reward_mode"] = canonical_reward_mode("oracle_preference_baseline")
+        wrapped_info["reward_mode_legacy"] = legacy_reward_mode_label("oracle_preference_baseline")
         wrapped_info["reward_model_path"] = self.reward_model_path
         return observation, wrapped_info
 
@@ -386,7 +391,8 @@ class FrontierPreferenceRewardWrapper(gym.Wrapper):
         wrapped_info = dict(info)
         wrapped_info["proxy_reward_original"] = float(info.get("proxy_reward", 0.0))
         wrapped_info["reward_model_reward"] = float(reward)
-        wrapped_info["reward_mode"] = "pref_model"
+        wrapped_info["reward_mode"] = canonical_reward_mode("oracle_preference_baseline")
+        wrapped_info["reward_mode_legacy"] = legacy_reward_mode_label("oracle_preference_baseline")
         wrapped_info["reward_model_path"] = self.reward_model_path
         wrapped_info["proxy_reward"] = float(reward)
         wrapped_info["gap"] = float(reward - float(wrapped_info.get("true_reward", 0.0)))
